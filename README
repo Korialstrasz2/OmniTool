@@ -1,1 +1,29 @@
-A repo for different tools I use. It mainly use html, css, JS, python.
+# OmniTool
+
+A small web interface to launch personal scripts and tools.
+
+## Setup
+
+```bash
+pip install -r requirements.txt
+python app.py
+```
+
+Then open `http://localhost:5000` in a browser.
+
+## Adding tools
+
+1. Drop your executable scripts into the `scripts/` directory.
+2. Add an entry to `tools.json` with the following fields:
+
+```json
+{
+  "id": "unique-id",
+  "name": "Display name",
+  "description": "What the tool does",
+  "command": "script_or_command_to_run"
+}
+```
+
+The command is run from the `scripts/` directory, so relative paths work.
+Each tool automatically gets its own page with a "Run" button.
