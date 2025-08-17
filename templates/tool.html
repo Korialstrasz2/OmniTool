@@ -1,0 +1,8 @@
+{% extends 'base.html' %}
+{% block content %}
+  <h2>{{ tool['name'] }}</h2>
+  <p>{{ tool['description'] }}</p>
+  <form method="post" action="{{ url_for('run_tool', tool_id=tool['id']) }}">
+    <button type="submit">Run</button>
+  </form>
+{% endblock %}

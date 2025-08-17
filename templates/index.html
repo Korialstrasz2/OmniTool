@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+{% block content %}
+  <h2>Tools</h2>
+  {% if tools %}
+    <ul class="tool-list">
+      {% for tool in tools %}
+        <li><a href="{{ url_for('tool_detail', tool_id=tool['id']) }}">{{ tool['name'] }}</a> - {{ tool['description'] }}</li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p>No tools configured yet. Add entries to <code>tools.json</code>.</p>
+  {% endif %}
+{% endblock %}
