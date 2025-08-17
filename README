@@ -11,6 +11,8 @@ python app.py
 
 Then open `http://localhost:5000` in a browser.
 
+On Windows, you can double-click `start.bat` to install dependencies, run the server, and open the app automatically.
+
 ## Adding tools
 
 1. Drop your executable scripts into the `scripts/` directory.
