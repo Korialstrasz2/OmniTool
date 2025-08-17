@@ -224,7 +224,8 @@ class CookieCleanerGUI:
         self.listbox.grid(row=2, column=0, columnspan=3, padx=5, pady=5)
 
         tk.Button(self.root, text="Add domain to whitelist", command=self.add_selected_to_whitelist).grid(row=3, column=0, columnspan=3, pady=5)
-        tk.Button(self.root, text="Delete Selected", command=self.delete_selected).grid(row=4, column=0, columnspan=3, pady=5)
+        tk.Button(self.root, text="Select All", command=self.select_all).grid(row=4, column=0, columnspan=3, pady=5)
+        tk.Button(self.root, text="Delete Selected", command=self.delete_selected).grid(row=5, column=0, columnspan=3, pady=5)
 
         self.cookies = []
 
@@ -256,15 +257,24 @@ class CookieCleanerGUI:
         self.cookie_db_path = path
         self.cookies = []
         self.listbox.delete(0, tk.END)
+        total = len(cookies)
         for domain, name in cookies:
             etld = naive_etld1(domain.lstrip('.'))
             if etld not in allow:
                 self.cookies.append((domain, name))
                 self.listbox.insert(tk.END, f"{domain}\t{name}")
+        filtered = total - len(self.cookies)
+        if filtered:
+            messagebox.showinfo(
+                "Info", f"{filtered} cookies are not shown as the domain is in the whitelist"
+            )
         messagebox.showinfo("Info", f"Loaded {len(self.cookies)} cookies to delete")
 
     def selected_indices(self):
         return list(self.listbox.curselection())
+
+    def select_all(self):
+        self.listbox.select_set(0, tk.END)
 
     def add_selected_to_whitelist(self):
         indices = self.selected_indices()
@@ -285,11 +295,16 @@ class CookieCleanerGUI:
             return
         info = self.browsers[self.browser_var.get()]
         try:
+            backup_path = self.cookie_db_path + ".bak"
+            shutil.copy2(self.cookie_db_path, backup_path)
             if info["type"] == "chromium":
                 delete_chromium_cookies(self.cookie_db_path, to_delete)
             else:
                 delete_firefox_cookies(self.cookie_db_path, to_delete)
-            messagebox.showinfo("Success", f"Deleted {len(to_delete)} cookies")
+            messagebox.showinfo(
+                "Success",
+                f"Deleted {len(to_delete)} cookies (backup saved to {backup_path})",
+            )
             self.load_cookies()
         except OSError as exc:
             if getattr(exc, "winerror", None) in (32, 1224):
