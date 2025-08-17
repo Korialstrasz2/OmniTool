@@ -5,6 +5,7 @@ import glob
 import os
 import shutil
 import sqlite3
+import subprocess
 import tempfile
 import tkinter as tk
 from tkinter import messagebox
@@ -132,16 +133,47 @@ def run_gui():
                 "Error", f"History database not found for {browser}."
             )
             return
-        try:
+
+        def _remove_history():
             if browser == "Firefox" or path.endswith("places.sqlite"):
                 delete_firefox_history(path, domain)
             else:
                 delete_chromium_history(path, domain)
+
+        try:
+            _remove_history()
             messagebox.showinfo(
                 "Success", f"Removed history for {domain} in {browser}."
             )
-        except (sqlite3.Error, OSError) as exc:
+        except sqlite3.Error as exc:
             messagebox.showerror("Error", str(exc))
+        except OSError as exc:
+            if getattr(exc, "winerror", None) == 1224:
+                if os.name == "nt" and browser == "Edge":
+                    try:
+                        subprocess.run(
+                            ["taskkill", "/F", "/IM", "msedge.exe"],
+                            check=False,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                        )
+                        try:
+                            _remove_history()
+                            messagebox.showinfo(
+                                "Success", f"Removed history for {domain} in {browser}."
+                            )
+                            return
+                        except OSError as retry_exc:
+                            if getattr(retry_exc, "winerror", None) != 1224:
+                                raise
+                    except Exception:
+                        pass
+                messagebox.showerror(
+                    "Error",
+                    "Please close all Edge windows and background processes, then retry.",
+                )
+            else:
+                raise
 
     tk.Button(root, text="Delete", command=on_delete).grid(
         row=2, column=0, columnspan=2, pady=10
