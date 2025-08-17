@@ -1,1 +1,8 @@
-[]
+[
+  {
+    "id": "browser-history-cleaner",
+    "name": "Browser History Cleaner",
+    "description": "Remove history entries for a domain from a selected browser",
+    "command": "python browser_history_cleaner.py"
+  }
+]
