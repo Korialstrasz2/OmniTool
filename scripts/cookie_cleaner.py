@@ -64,6 +64,16 @@ def save_whitelist(domains):
             f.write(d + "\n")
 
 
+def append_whitelist(domains):
+    existing = load_whitelist()
+    to_add = domains - existing
+    if not to_add:
+        return
+    with open(WHITELIST_FILE, "a", encoding="utf-8") as f:
+        for d in sorted(to_add):
+            f.write(d + "\n")
+
+
 def extract_chromium_domains(root):
     domains = set()
     history_path = os.path.join(root, "History")
@@ -218,12 +228,21 @@ class CookieCleanerGUI:
 
         self.cookies = []
 
+        self.build_allowlist(self.browsers[self.browser_var.get()])
+
     def build_allowlist(self, info):
         domains = load_whitelist()
         if info["type"] == "chromium":
-            domains.update(extract_chromium_domains(info["root"]))
+            history = extract_chromium_domains(info["root"])
         else:
-            domains.update(extract_firefox_domains(info["root"]))
+            history = extract_firefox_domains(info["root"])
+        new_domains = history - domains
+        if new_domains and messagebox.askyesno(
+            "Whitelist",
+            "I found these cookies whose site is in the history. Should I add them to the whitelist?",
+        ):
+            append_whitelist(new_domains)
+            domains.update(new_domains)
         return domains
 
     def load_cookies(self):
@@ -252,11 +271,8 @@ class CookieCleanerGUI:
         if not indices:
             messagebox.showerror("Error", "No cookies selected")
             return
-        wl = load_whitelist()
-        for i in indices:
-            domain, _ = self.cookies[i]
-            wl.add(naive_etld1(domain.lstrip('.')))
-        save_whitelist(wl)
+        wl = {naive_etld1(self.cookies[i][0].lstrip('.')) for i in indices}
+        append_whitelist(wl)
         self.load_cookies()
 
     def delete_selected(self):
