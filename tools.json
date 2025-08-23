@@ -10,5 +10,11 @@
     "name": "Cookie Cleaner",
     "description": "Delete unwanted cookies using a whitelist approach",
     "command": "python cookie_cleaner.py"
+  },
+  {
+    "id": "lowercase-renamer",
+    "name": "Lowercase Renamer",
+    "description": "Rename all files in a folder to lowercase",
+    "command": "python lowercase_renamer.py"
   }
 ]
