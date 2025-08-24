@@ -14,6 +14,10 @@ from tkinter import filedialog, messagebox, ttk
 
 from PIL import Image, ImageTk
 
+# Thumbnails and treeview rows are displayed three times larger than the
+# previous defaults so previews are easier to view.
+THUMB_SIZE = 64 * 3
+
 
 def choose_directory(title: str) -> str:
     """Prompt the user to select a directory and return its path."""
@@ -38,17 +42,24 @@ class DualFileRenamer:
         self.right_root = tk.Toplevel(self.left_root)
         self.right_root.title(f"Right: {right_dir}")
 
-        self.placeholder = ImageTk.PhotoImage(Image.new("RGB", (64, 64), "gray"))
+        style = ttk.Style()
+        style.configure("Thumb.Treeview", rowheight=THUMB_SIZE)
+
+        self.placeholder = ImageTk.PhotoImage(
+            Image.new("RGB", (THUMB_SIZE, THUMB_SIZE), "gray")
+        )
         self.left_images: dict[str, ImageTk.PhotoImage] = {}
         self.right_images: dict[str, ImageTk.PhotoImage] = {}
 
         # Left window widgets
-        self.left_list = ttk.Treeview(self.left_root, show="tree")
+        self.left_list = ttk.Treeview(self.left_root, show="tree", style="Thumb.Treeview")
         self.left_list.pack(fill=tk.BOTH, expand=True)
         self.left_list.bind("<<TreeviewSelect>>", self.on_left_select)
 
         # Right window widgets
-        self.right_list = ttk.Treeview(self.right_root, show="tree")
+        self.right_list = ttk.Treeview(
+            self.right_root, show="tree", style="Thumb.Treeview"
+        )
         self.right_list.pack(fill=tk.BOTH, expand=True)
         self.right_list.bind("<<TreeviewSelect>>", self.on_right_select)
 
@@ -114,7 +125,7 @@ class DualFileRenamer:
                 img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
             else:
                 return None
-            img.thumbnail((64, 64))
+            img.thumbnail((THUMB_SIZE, THUMB_SIZE))
             return img
         except Exception:
             return None
