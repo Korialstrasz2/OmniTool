@@ -22,5 +22,11 @@
     "name": "Dual File Renamer",
     "description": "Match file names between two folders while keeping extensions",
     "command": "python dual_file_renamer.py"
+  },
+  {
+    "id": "folder-compare",
+    "name": "Folder Compare",
+    "description": "List file name differences between two folders",
+    "command": "python folder_compare.py"
   }
 ]
