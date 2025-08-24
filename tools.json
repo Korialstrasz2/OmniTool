@@ -16,5 +16,11 @@
     "name": "Lowercase Renamer",
     "description": "Rename all files in a folder to lowercase",
     "command": "python lowercase_renamer.py"
+  },
+  {
+    "id": "dual-file-renamer",
+    "name": "Dual File Renamer",
+    "description": "Match file names between two folders while keeping extensions",
+    "command": "python dual_file_renamer.py"
   }
 ]
