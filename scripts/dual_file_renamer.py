@@ -12,6 +12,11 @@ from tkinter import filedialog, messagebox
 
 from PIL import Image, ImageTk
 
+try:  # Optional dependency for video thumbnails
+    import imageio.v2 as imageio
+except Exception:  # pragma: no cover - best effort import
+    imageio = None
+
 
 def choose_directory(title: str) -> str:
     """Prompt the user to select a directory and return its path."""
@@ -55,6 +60,14 @@ class DualFileRenamer:
         self.refresh(self.left_list, self.left_dir)
         self.refresh(self.right_list, self.right_dir)
 
+        # Preload thumbnails for initial items so previews are visible immediately
+        if self.left_list.size():
+            self.left_list.select_set(0)
+            self.on_left_select(None)
+        if self.right_list.size():
+            first = self.right_list.get(0)
+            self.show_thumbnail(os.path.join(self.right_dir, first), self.right_thumb)
+
     def refresh(self, widget: tk.Listbox, directory: str) -> None:
         """Populate *widget* with file names from *directory*."""
         widget.delete(0, tk.END)
@@ -93,16 +106,30 @@ class DualFileRenamer:
             self.refresh(self.right_list, self.right_dir)
             self.show_thumbnail(dst, self.right_thumb)
 
+    IMAGE_EXTS = {".bmp", ".gif", ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp"}
+    VIDEO_EXTS = {".avi", ".mkv", ".mov", ".mp4", ".webm"}
+
     def show_thumbnail(self, path: str, label: tk.Label) -> None:
-        """Display a thumbnail for *path* on *label* if it is an image."""
+        """Display a thumbnail for *path* on *label* if possible."""
+        ext = os.path.splitext(path)[1].lower()
         try:
-            img = Image.open(path)
+            if ext in self.IMAGE_EXTS:
+                img = Image.open(path)
+            elif ext in self.VIDEO_EXTS and imageio:
+                reader = imageio.get_reader(path)
+                frame = reader.get_data(0)
+                reader.close()
+                img = Image.fromarray(frame)
+            else:  # Unsupported type
+                label.configure(image="", text="No preview")
+                label.image = None
+                return
             img.thumbnail((200, 200))
             photo = ImageTk.PhotoImage(img)
-            label.configure(image=photo)
+            label.configure(image=photo, text="")
             label.image = photo  # keep reference
         except Exception:
-            label.configure(image="")
+            label.configure(image="", text="No preview")
             label.image = None
 
     def run(self) -> None:
