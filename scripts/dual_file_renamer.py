@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """Rename files in one folder based on selections from another using a GUI.
 
-Open two windows listing files from two folders. Selecting a file in the
-left window and then clicking a file in the right window renames the right
-file to match the left file's stem while preserving the original extension.
+Two windows display the contents of two folders. Each file is shown with a
+thumbnail preview so images, videos and other common media types can be easily
+identified. Selecting a thumbnail in the left window and then clicking one in
+the right window renames the right file to match the left file's stem while
+preserving the original extension.
 """
 
 import os
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, ttk
 
 from PIL import Image, ImageTk
 
@@ -36,50 +38,51 @@ class DualFileRenamer:
         self.right_root = tk.Toplevel(self.left_root)
         self.right_root.title(f"Right: {right_dir}")
 
-        # Left window widgets
-        self.left_list = tk.Listbox(self.left_root, width=40)
-        self.left_list.pack(fill=tk.BOTH, expand=True)
-        self.left_list.bind("<<ListboxSelect>>", self.on_left_select)
+        self.placeholder = ImageTk.PhotoImage(Image.new("RGB", (64, 64), "gray"))
+        self.left_images: dict[str, ImageTk.PhotoImage] = {}
+        self.right_images: dict[str, ImageTk.PhotoImage] = {}
 
-        self.left_thumb = tk.Label(self.left_root)
-        self.left_thumb.pack()
+        # Left window widgets
+        self.left_list = ttk.Treeview(self.left_root, show="tree")
+        self.left_list.pack(fill=tk.BOTH, expand=True)
+        self.left_list.bind("<<TreeviewSelect>>", self.on_left_select)
 
         # Right window widgets
-        self.right_list = tk.Listbox(self.right_root, width=40)
+        self.right_list = ttk.Treeview(self.right_root, show="tree")
         self.right_list.pack(fill=tk.BOTH, expand=True)
-        self.right_list.bind("<<ListboxSelect>>", self.on_right_select)
+        self.right_list.bind("<<TreeviewSelect>>", self.on_right_select)
 
-        self.right_thumb = tk.Label(self.right_root)
-        self.right_thumb.pack()
+        self.refresh(self.left_list, self.left_dir, self.left_images)
+        self.refresh(self.right_list, self.right_dir, self.right_images)
 
-        self.refresh(self.left_list, self.left_dir)
-        self.refresh(self.right_list, self.right_dir)
-
-    def refresh(self, widget: tk.Listbox, directory: str) -> None:
-        """Populate *widget* with file names from *directory*."""
-        widget.delete(0, tk.END)
+    def refresh(
+        self, widget: ttk.Treeview, directory: str, images: dict[str, ImageTk.PhotoImage]
+    ) -> None:
+        """Populate *widget* with file names and thumbnails from *directory*."""
+        widget.delete(*widget.get_children())
+        images.clear()
         for name in sorted(os.listdir(directory)):
             path = os.path.join(directory, name)
             if os.path.isfile(path):
-                widget.insert(tk.END, name)
+                thumb = self.make_thumbnail(path)
+                photo = ImageTk.PhotoImage(thumb) if thumb else self.placeholder
+                images[name] = photo
+                widget.insert("", tk.END, iid=name, text=name, image=photo)
 
     def on_left_select(self, _event) -> None:
         """Store the currently selected file from the left list."""
-        sel = self.left_list.curselection()
+        sel = self.left_list.selection()
         if sel:
-            self.selected_left = self.left_list.get(sel[0])
-            path = os.path.join(self.left_dir, self.selected_left)
-            self.show_thumbnail(path, self.left_thumb)
+            self.selected_left = sel[0]
 
     def on_right_select(self, _event) -> None:
         """Rename the selected file in the right list using the left selection."""
-        sel = self.right_list.curselection()
+        sel = self.right_list.selection()
         if not sel:
             return
 
-        right_name = self.right_list.get(sel[0])
+        right_name = sel[0]
         right_path = os.path.join(self.right_dir, right_name)
-        self.show_thumbnail(right_path, self.right_thumb)
 
         if self.selected_left:
             left_stem, _left_ext = os.path.splitext(self.selected_left)
@@ -90,20 +93,31 @@ class DualFileRenamer:
                 messagebox.showerror("Error", f"File {new_name} already exists.")
                 return
             os.rename(right_path, dst)
-            self.refresh(self.right_list, self.right_dir)
-            self.show_thumbnail(dst, self.right_thumb)
+            self.refresh(self.right_list, self.right_dir, self.right_images)
 
-    def show_thumbnail(self, path: str, label: tk.Label) -> None:
-        """Display a thumbnail for *path* on *label* if it is an image."""
+    def make_thumbnail(self, path: str) -> Image.Image | None:
+        """Return a thumbnail Image for *path* if possible."""
+        ext = os.path.splitext(path)[1].lower()
         try:
-            img = Image.open(path)
-            img.thumbnail((200, 200))
-            photo = ImageTk.PhotoImage(img)
-            label.configure(image=photo)
-            label.image = photo  # keep reference
+            if ext in {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}:
+                img = Image.open(path)
+            elif ext in {".mp4", ".mov", ".avi", ".mkv"}:
+                try:
+                    import cv2
+                except Exception:
+                    return None
+                cap = cv2.VideoCapture(path)
+                success, frame = cap.read()
+                cap.release()
+                if not success:
+                    return None
+                img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            else:
+                return None
+            img.thumbnail((64, 64))
+            return img
         except Exception:
-            label.configure(image="")
-            label.image = None
+            return None
 
     def run(self) -> None:
         """Start the GUI event loop."""
