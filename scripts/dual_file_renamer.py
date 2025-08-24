@@ -10,6 +10,8 @@ import os
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
+from PIL import Image, ImageTk
+
 
 def choose_directory(title: str) -> str:
     """Prompt the user to select a directory and return its path."""
@@ -34,13 +36,21 @@ class DualFileRenamer:
         self.right_root = tk.Toplevel(self.left_root)
         self.right_root.title(f"Right: {right_dir}")
 
+        # Left window widgets
         self.left_list = tk.Listbox(self.left_root, width=40)
         self.left_list.pack(fill=tk.BOTH, expand=True)
         self.left_list.bind("<<ListboxSelect>>", self.on_left_select)
 
+        self.left_thumb = tk.Label(self.left_root)
+        self.left_thumb.pack()
+
+        # Right window widgets
         self.right_list = tk.Listbox(self.right_root, width=40)
         self.right_list.pack(fill=tk.BOTH, expand=True)
         self.right_list.bind("<<ListboxSelect>>", self.on_right_select)
+
+        self.right_thumb = tk.Label(self.right_root)
+        self.right_thumb.pack()
 
         self.refresh(self.left_list, self.left_dir)
         self.refresh(self.right_list, self.right_dir)
@@ -58,22 +68,42 @@ class DualFileRenamer:
         sel = self.left_list.curselection()
         if sel:
             self.selected_left = self.left_list.get(sel[0])
+            path = os.path.join(self.left_dir, self.selected_left)
+            self.show_thumbnail(path, self.left_thumb)
 
     def on_right_select(self, _event) -> None:
         """Rename the selected file in the right list using the left selection."""
         sel = self.right_list.curselection()
-        if sel and self.selected_left:
-            right_name = self.right_list.get(sel[0])
+        if not sel:
+            return
+
+        right_name = self.right_list.get(sel[0])
+        right_path = os.path.join(self.right_dir, right_name)
+        self.show_thumbnail(right_path, self.right_thumb)
+
+        if self.selected_left:
             left_stem, _left_ext = os.path.splitext(self.selected_left)
             _right_stem, right_ext = os.path.splitext(right_name)
             new_name = left_stem + right_ext
-            src = os.path.join(self.right_dir, right_name)
             dst = os.path.join(self.right_dir, new_name)
             if os.path.exists(dst):
                 messagebox.showerror("Error", f"File {new_name} already exists.")
                 return
-            os.rename(src, dst)
+            os.rename(right_path, dst)
             self.refresh(self.right_list, self.right_dir)
+            self.show_thumbnail(dst, self.right_thumb)
+
+    def show_thumbnail(self, path: str, label: tk.Label) -> None:
+        """Display a thumbnail for *path* on *label* if it is an image."""
+        try:
+            img = Image.open(path)
+            img.thumbnail((200, 200))
+            photo = ImageTk.PhotoImage(img)
+            label.configure(image=photo)
+            label.image = photo  # keep reference
+        except Exception:
+            label.configure(image="")
+            label.image = None
 
     def run(self) -> None:
         """Start the GUI event loop."""
@@ -82,10 +112,10 @@ class DualFileRenamer:
 
 def run_gui() -> None:
     """Launch directory pickers and start the renamer GUI."""
-    left = choose_directory("Select left folder")
+    left = choose_directory("Select the folder whose file names are the source (not renamed)")
     if not left:
         return
-    right = choose_directory("Select right folder")
+    right = choose_directory("Select the folder whose files are to be renamed")
     if not right:
         return
     DualFileRenamer(left, right).run()
