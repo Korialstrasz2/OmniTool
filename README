@@ -11,6 +11,18 @@ python app.py
 
 Then open `http://localhost:5000` in a browser.
 
+> **Optional local models**
+>
+> The Comfy Prompt Builder can talk to local GGUF models through
+> `llama-cpp-python`, but that package requires native build tools on
+> Windows. To keep the default setup lightweight, it's no longer installed
+> automatically. If you need local model support, install it manually after
+> setting up the project:
+>
+> ```bash
+> pip install llama-cpp-python
+> ```
+
 On Windows, you can double-click `start.bat` to install dependencies, run the server, and open the app automatically.
 
 ## Adding tools
