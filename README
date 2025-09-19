@@ -11,6 +11,16 @@ python app.py
 
 Then open `http://localhost:5000` in a browser.
 
+> **Windows permissions error installing numpy?**
+>
+> If you see an error such as `Could not install packages due to an OSError:
+> [WinError 2] The system cannot find the file specified: '...f2py.exe'`, it
+> means pip tried to upgrade a system-wide copy of NumPy. The included
+> `requirements.txt` now pins NumPy below version 2.0 and OpenCV below 4.11 to
+> avoid that upgrade, but you may still need to make sure you're installing
+> inside a virtual environment (the provided `start.bat` does this
+> automatically).
+
 > **Optional local models**
 >
 > The Comfy Prompt Builder can talk to local GGUF models through
