@@ -38,7 +38,7 @@
   {
     "id": "comfy-prompt-builder",
     "name": "Comfy Prompt Builder",
-    "description": "Generate ComfyUI prompts using Ollama or local GGUF models",
+    "description": "Generate ComfyUI prompts using KoboldCpp or local GGUF models",
     "command": "python comfy_prompt_builder/start.py"
   }
 ]

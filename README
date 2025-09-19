@@ -21,9 +21,19 @@ Then open `http://localhost:5000` in a browser.
 > inside a virtual environment (the provided `start.bat` does this
 > automatically).
 
+> **KoboldCpp backend**
+>
+> The Comfy Prompt Builder now connects to a running KoboldCpp instance by
+> default. Start KoboldCpp with its HTTP API enabled (typically on
+> `http://127.0.0.1:5001`) before launching OmniTool. You can override the
+> default address with the `KOBOLD_HOST` environment variable or by entering
+> a URL in the prompt builder UI. The bundled
+> `comfy_diffusion_image_prompt.txt` file provides the system instructions
+> that are loaded automatically for each request.
+>
 > **Optional local models**
 >
-> The Comfy Prompt Builder can talk to local GGUF models through
+> The Comfy Prompt Builder can still talk to local GGUF models through
 > `llama-cpp-python`, but that package requires native build tools on
 > Windows. To keep the default setup lightweight, it's no longer installed
 > automatically. If you need local model support, install it manually after
