@@ -11,8 +11,9 @@
       <header>
         <h1>Comfy Prompt Builder</h1>
         <p>
-          Generate polished ComfyUI prompts using your favourite model. Choose an
-          Ollama model or point directly to a local <code>.gguf</code>.
+          Generate polished ComfyUI prompts using your favourite model. Connect
+          to a running KoboldCpp server or point directly to a local
+          <code>.gguf</code>.
         </p>
       </header>
 
@@ -21,17 +22,19 @@
         <div class="field">
           <label for="backend">Backend</label>
           <select id="backend">
-            <option value="ollama">Ollama</option>
+            <option value="koboldcpp">KoboldCpp server</option>
             <option value="local">Local GGUF</option>
           </select>
         </div>
 
-        <div id="ollamaOptions" class="field-group">
-          <label for="ollamaModel">Ollama model</label>
-          <input id="ollamaModel" list="ollamaModels" placeholder="e.g., dolphin3" />
-          <datalist id="ollamaModels"></datalist>
-          <p class="hint">Pull with <code>ollama pull &lt;model&gt;</code> before using.</p>
-          <div id="ollamaStatus" class="status"></div>
+        <div id="koboldOptions" class="field-group">
+          <label for="koboldUrl">KoboldCpp server URL</label>
+          <input id="koboldUrl" placeholder="http://127.0.0.1:5001" />
+          <p class="hint">
+            Leave empty to use the default address. Ensure KoboldCpp is running
+            with its API enabled.
+          </p>
+          <div id="koboldStatus" class="status"></div>
         </div>
 
         <div id="localOptions" class="field-group hidden">

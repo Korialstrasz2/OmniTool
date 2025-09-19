@@ -1,9 +1,9 @@
 const $ = (selector) => document.querySelector(selector);
 const backendSelect = $('#backend');
-const ollamaOptions = $('#ollamaOptions');
+const koboldOptions = $('#koboldOptions');
 const localOptions = $('#localOptions');
-const ollamaModelInput = $('#ollamaModel');
-const ollamaStatus = $('#ollamaStatus');
+const koboldUrlInput = $('#koboldUrl');
+const koboldStatus = $('#koboldStatus');
 const localStatus = $('#localStatus');
 const ggufInput = $('#ggufPath');
 const generateBtn = $('#generate');
@@ -22,8 +22,7 @@ const breadcrumbs = $('#breadcrumbs');
 const entryTemplate = document.getElementById('entryTemplate');
 
 const state = {
-  backend: 'ollama',
-  ollamaModels: [],
+  backend: 'koboldcpp',
   browserPath: null,
   lastResponse: null,
 };
@@ -36,21 +35,28 @@ async function fetchJSON(url) {
   return res.json();
 }
 
-async function loadOllamaModels() {
+async function loadKoboldStatus() {
+  const base = koboldUrlInput.value.trim();
+  const query = base ? `?url=${encodeURIComponent(base)}` : '';
   try {
-    const data = await fetchJSON('/api/ollama_models');
-    state.ollamaModels = data.models || [];
-    ollamaStatus.textContent = `Found ${state.ollamaModels.length} model(s).`;
-    const datalist = $('#ollamaModels');
-    datalist.innerHTML = '';
-    state.ollamaModels.forEach((model) => {
-      const option = document.createElement('option');
-      option.value = model;
-      datalist.appendChild(option);
-    });
+    const data = await fetchJSON(`/api/kobold/status${query}`);
+    if (data.url && !base) {
+      koboldUrlInput.value = data.url;
+    }
+    if (data.online) {
+      const label = data.model ? `Connected to ${data.model}` : 'Connected to KoboldCpp';
+      koboldStatus.textContent = label;
+      koboldStatus.classList.remove('error');
+    } else if (data.error) {
+      koboldStatus.textContent = `Unable to reach KoboldCpp: ${data.error}`;
+      koboldStatus.classList.add('error');
+    } else {
+      koboldStatus.textContent = 'KoboldCpp instance not detected yet.';
+      koboldStatus.classList.add('error');
+    }
   } catch (error) {
-    ollamaStatus.textContent = `Ollama unavailable: ${error.message}`;
-    ollamaStatus.classList.add('error');
+    koboldStatus.textContent = `KoboldCpp unavailable: ${error.message}`;
+    koboldStatus.classList.add('error');
   }
 }
 
@@ -80,12 +86,13 @@ async function loadLocalStatus() {
 
 function switchBackend(value) {
   state.backend = value;
-  if (value === 'ollama') {
-    ollamaOptions.classList.remove('hidden');
+  if (value === 'koboldcpp') {
+    koboldOptions.classList.remove('hidden');
     localOptions.classList.add('hidden');
+    loadKoboldStatus();
   } else {
     localOptions.classList.remove('hidden');
-    ollamaOptions.classList.add('hidden');
+    koboldOptions.classList.add('hidden');
     loadLocalStatus();
   }
 }
@@ -132,11 +139,10 @@ async function generate() {
     seed: $('#seed').value ? parseInt($('#seed').value, 10) : null,
     max_tokens: $('#max_tokens').value ? parseInt($('#max_tokens').value, 10) : null,
   };
-  if (state.backend === 'ollama') {
-    payload.model = ollamaModelInput.value.trim();
-    if (!payload.model) {
-      alert('Enter an Ollama model name.');
-      return;
+  if (state.backend === 'koboldcpp') {
+    const url = koboldUrlInput.value.trim();
+    if (url) {
+      payload.kobold_url = url;
     }
   } else {
     payload.gguf_path = ggufInput.value.trim();
@@ -272,6 +278,9 @@ fileBrowser.addEventListener('click', (event) => {
   }
 });
 
+koboldUrlInput.addEventListener('change', loadKoboldStatus);
+koboldUrlInput.addEventListener('blur', loadKoboldStatus);
+
 window.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && !fileBrowser.classList.contains('hidden')) {
     hideBrowser();
@@ -279,4 +288,4 @@ window.addEventListener('keydown', (event) => {
 });
 
 switchBackend(backendSelect.value);
-loadOllamaModels();
+loadKoboldStatus();

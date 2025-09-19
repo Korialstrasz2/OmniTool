@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
 from typing import Dict, List, Optional
+from urllib.parse import urlparse
 
 import requests
 from fastapi import FastAPI, HTTPException, Query
@@ -23,21 +24,37 @@ except Exception:  # pragma: no cover - handled at runtime
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
-DEFAULT_SYSTEM_PROMPT = (
-    "You are a prompt engineer for Stable Diffusion (ComfyUI). "
-    "Transform a short idea into a clean SD/ComfyUI prompt.\n"
-    "Output JSON with fields:\n"
-    "{\n"
-    '  "positive": "comma-separated descriptive prompt",\n'
-    '  "negative": "things to avoid, artifacts",\n'
-    '  "extras": { "style_tags": [], "sampler": "DPM++ 2M Karras", "cfg": 6.5, "steps": 28 }\n'
-    "}\n"
-    "Rules: concise, powerful tags; include subject, composition, lighting, lens/camera, style; "
-    "avoid repetition; keep negative realistic. If the idea names a model, tag appropriately.\n"
-    "Also include a flat string field 'prompt' equal to positive."
+SYSTEM_PROMPT_PATH = (
+    os.getenv("COMFY_SYSTEM_PROMPT")
+    or str(BASE_DIR / "comfy_diffusion_image_prompt.txt")
 )
 
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
+
+def _load_system_prompt() -> str:
+    path = Path(SYSTEM_PROMPT_PATH)
+    if path.exists():
+        try:
+            return path.read_text(encoding="utf-8")
+        except OSError:
+            pass
+    return (
+        "You are a prompt engineer for Stable Diffusion (ComfyUI). "
+        "Transform a short idea into a clean SD/ComfyUI prompt.\n"
+        "Output JSON with fields:\n"
+        "{\n"
+        '  "positive": "comma-separated descriptive prompt",\n'
+        '  "negative": "things to avoid, artifacts",\n'
+        '  "extras": { "style_tags": [], "sampler": "DPM++ 2M Karras", "cfg": 6.5, "steps": 28 }\n'
+        "}\n"
+        "Rules: concise, powerful tags; include subject, composition, lighting, lens/camera, style; "
+        "avoid repetition; keep negative realistic. If the idea names a model, tag appropriately.\n"
+        "Also include a flat string field 'prompt' equal to positive."
+    )
+
+
+DEFAULT_SYSTEM_PROMPT = _load_system_prompt()
+
+KOBOLD_HOST = os.getenv("KOBOLD_HOST", "http://127.0.0.1:5001").rstrip("/")
 GGUF_ENV_PATHS = os.getenv("GGUF_SEARCH_PATHS") or os.getenv("GGUF_ROOTS")
 GGUF_DEFAULT_CONTEXT = int(os.getenv("GGUF_CONTEXT", "4096"))
 GGUF_THREADS = int(os.getenv("GGUF_THREADS", "0"))
@@ -46,8 +63,8 @@ GGUF_N_GPU_LAYERS_INT = int(GGUF_N_GPU_LAYERS) if GGUF_N_GPU_LAYERS else None
 
 
 class GenerateRequest(BaseModel):
-    backend: str = "ollama"
-    model: Optional[str] = None
+    backend: str = "koboldcpp"
+    kobold_url: Optional[str] = None
     gguf_path: Optional[str] = None
     idea: str
     system: Optional[str] = None
@@ -196,16 +213,35 @@ def _get_roots() -> List[Path]:
     return unique_roots
 
 
-@app.get("/api/ollama_models")
-def list_ollama_models() -> Dict[str, List[str]]:
+def _normalise_base_url(raw: Optional[str]) -> str:
+    base = (raw or "").strip() or KOBOLD_HOST
+    parsed = urlparse(base)
+    if not parsed.scheme:
+        base = f"http://{base}"
+    return base.rstrip("/")
+
+
+@app.get("/api/kobold/status")
+def kobold_status(
+    url: Optional[str] = Query(default=None, description="Base URL of KoboldCpp server")
+) -> Dict[str, Optional[str] | bool]:
+    base = _normalise_base_url(url)
+    result: Dict[str, Optional[str] | bool] = {"url": base, "online": False, "model": None}
     try:
-        response = requests.get(f"{OLLAMA_HOST}/api/tags", timeout=5)
+        response = requests.get(f"{base}/api/v1/model", timeout=5)
         response.raise_for_status()
         data = response.json()
-        models = [item.get("name") for item in data.get("models", []) if item.get("name")]
-        return {"models": models}
+        model_name = (
+            data.get("result")
+            or data.get("model")
+            or data.get("name")
+            or data.get("model_name")
+        )
+        result["online"] = True
+        result["model"] = model_name
     except Exception as exc:  # pragma: no cover - depends on external service
-        raise HTTPException(status_code=502, detail=f"Could not reach Ollama: {exc}")
+        result["error"] = str(exc)
+    return result
 
 
 @app.get("/api/local/status")
@@ -254,47 +290,79 @@ def browse_filetree(path: Optional[str] = Query(default=None, description="Direc
     return DirectoryListing(path=None, parent=None, directories=roots, files=[])
 
 
-def _call_ollama(request: GenerateRequest, messages: List[Dict[str, str]]) -> Dict[str, str]:
-    if not request.model:
-        raise HTTPException(status_code=400, detail="Model name is required for Ollama requests")
-    payload = {
-        "model": request.model,
-        "messages": messages,
+def _format_messages_for_kobold(messages: List[Dict[str, str]]) -> str:
+    system_parts: List[str] = []
+    user_parts: List[str] = []
+    assistant_parts: List[str] = []
+    for message in messages:
+        role = message.get("role", "").lower()
+        content = message.get("content", "").strip()
+        if not content:
+            continue
+        if role == "system":
+            system_parts.append(content)
+        elif role == "assistant":
+            assistant_parts.append(content)
+        else:
+            user_parts.append(content)
+    sections = []
+    if system_parts:
+        sections.append("System:\n" + "\n\n".join(system_parts))
+    if user_parts:
+        sections.append("User:\n" + "\n\n".join(user_parts))
+    if assistant_parts:
+        sections.append("Assistant:\n" + "\n\n".join(assistant_parts))
+    sections.append("Assistant:\n")
+    return "\n\n".join(sections)
+
+
+def _call_kobold(request: GenerateRequest, messages: List[Dict[str, str]]) -> Dict[str, str]:
+    base = _normalise_base_url(request.kobold_url)
+    prompt = _format_messages_for_kobold(messages)
+    payload: Dict[str, object] = {
+        "prompt": prompt,
+        "max_length": request.max_tokens or 600,
+        "temperature": request.temperature if request.temperature is not None else 0.6,
+        "top_p": request.top_p if request.top_p is not None else 0.9,
         "stream": False,
-        "options": {
-            key: value
-            for key, value in {
-                "temperature": request.temperature,
-                "top_p": request.top_p,
-                "top_k": request.top_k,
-                "repeat_penalty": request.repeat_penalty,
-                "seed": request.seed,
-            }.items()
-            if value is not None
-        },
+        "stop_sequence": ["\nUser:", "\nSystem:"],
     }
+    if request.top_k is not None:
+        payload["top_k"] = request.top_k
+    if request.repeat_penalty is not None:
+        payload["repetition_penalty"] = request.repeat_penalty
+    if request.seed is not None:
+        payload["seed"] = request.seed
     try:
         response = requests.post(
-            f"{OLLAMA_HOST}/api/chat", json=payload, timeout=(10, 180)
+            f"{base}/api/v1/generate", json=payload, timeout=(10, 180)
         )
         response.raise_for_status()
         data = response.json()
-        content = data.get("message", {}).get("content", "").strip()
+        results = data.get("results")
+        if not results:
+            raise RuntimeError("Empty response from KoboldCpp")
+        text = results[0].get("text", "")
+        content = text.strip()
+        if content.lower().startswith("assistant:"):
+            content = content.split(":", 1)[1].strip()
         if not content:
-            raise RuntimeError("Empty content from Ollama")
-        return {"backend": "ollama", "model": request.model, "content": content}
+            raise RuntimeError("KoboldCpp returned empty content")
+        return {"backend": "koboldcpp", "model": data.get("model"), "content": content}
+    except HTTPException:
+        raise
     except Exception as exc:  # pragma: no cover - depends on external service
-        raise HTTPException(status_code=502, detail=f"Ollama error: {exc}")
+        raise HTTPException(status_code=502, detail=f"KoboldCpp error: {exc}")
 
 
 @app.post("/api/generate_prompt")
 def generate_prompt(request: GenerateRequest) -> Dict[str, str]:
-    backend = (request.backend or "ollama").lower()
+    backend = (request.backend or "koboldcpp").lower()
     messages = _build_messages(request)
     if backend == "local":
         return local_models.generate(request, messages)
-    if backend == "ollama":
-        return _call_ollama(request, messages)
+    if backend in {"kobold", "koboldcpp"}:
+        return _call_kobold(request, messages)
     raise HTTPException(status_code=400, detail=f"Unknown backend '{request.backend}'")
 
 
