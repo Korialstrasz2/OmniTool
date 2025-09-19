@@ -34,5 +34,11 @@
     "name": "Base64 PDF to PNG",
     "description": "Decode a Base64 PDF/image and export PNG(s)",
     "command": "python b64pdf2png.py"
+  },
+  {
+    "id": "comfy-prompt-builder",
+    "name": "Comfy Prompt Builder",
+    "description": "Generate ComfyUI prompts using Ollama or local GGUF models",
+    "command": "python comfy_prompt_builder/start.py"
   }
 ]

@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Comfy Prompt Builder</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="layout">
+      <header>
+        <h1>Comfy Prompt Builder</h1>
+        <p>
+          Generate polished ComfyUI prompts using your favourite model. Choose an
+          Ollama model or point directly to a local <code>.gguf</code>.
+        </p>
+      </header>
+
+      <section class="panel">
+        <h2>Model Source</h2>
+        <div class="field">
+          <label for="backend">Backend</label>
+          <select id="backend">
+            <option value="ollama">Ollama</option>
+            <option value="local">Local GGUF</option>
+          </select>
+        </div>
+
+        <div id="ollamaOptions" class="field-group">
+          <label for="ollamaModel">Ollama model</label>
+          <input id="ollamaModel" list="ollamaModels" placeholder="e.g., dolphin3" />
+          <datalist id="ollamaModels"></datalist>
+          <p class="hint">Pull with <code>ollama pull &lt;model&gt;</code> before using.</p>
+          <div id="ollamaStatus" class="status"></div>
+        </div>
+
+        <div id="localOptions" class="field-group hidden">
+          <label for="ggufPath">GGUF path</label>
+          <div class="file-row">
+            <input id="ggufPath" placeholder="Select a .gguf model" />
+            <button id="browse" type="button">Browse…</button>
+          </div>
+          <div id="localStatus" class="status"></div>
+          <details class="hint">
+            <summary>Runtime options</summary>
+            <p>
+              Adjust with environment variables before launching:
+              <code>GGUF_CONTEXT</code>, <code>GGUF_THREADS</code>,
+              <code>GGUF_N_GPU_LAYERS</code>, <code>GGUF_SEARCH_PATHS</code>.
+            </p>
+          </details>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Prompt Controls</h2>
+        <div class="grid">
+          <label>
+            <span>Temperature</span>
+            <input id="temperature" type="number" step="0.05" value="0.6" />
+          </label>
+          <label>
+            <span>Top P</span>
+            <input id="top_p" type="number" step="0.05" value="0.9" />
+          </label>
+          <label>
+            <span>Top K</span>
+            <input id="top_k" type="number" step="1" placeholder="Default" />
+          </label>
+          <label>
+            <span>Repeat penalty</span>
+            <input id="repeat_penalty" type="number" step="0.05" placeholder="Default" />
+          </label>
+          <label>
+            <span>Seed</span>
+            <input id="seed" type="number" step="1" placeholder="Random" />
+          </label>
+          <label>
+            <span>Max tokens</span>
+            <input id="max_tokens" type="number" step="50" value="600" />
+          </label>
+        </div>
+
+        <label>
+          <span>Idea</span>
+          <input id="idea" placeholder="e.g., neon-lit rainy alley portrait" />
+        </label>
+
+        <label>
+          <span>System prompt</span>
+          <textarea id="system" rows="5" placeholder="Leave empty to use the built-in template"></textarea>
+        </label>
+
+        <label>
+          <span>Few-shot examples</span>
+          <textarea id="examples" rows="5" placeholder="Paste optional examples to steer formatting"></textarea>
+        </label>
+
+        <button id="generate" type="button" class="primary">Generate prompt</button>
+      </section>
+
+      <section class="panel">
+        <h2>Result</h2>
+        <div id="result" class="result">No generation yet.</div>
+        <div id="parsed" class="parsed hidden">
+          <div>
+            <h3>Positive</h3>
+            <pre id="positive"></pre>
+          </div>
+          <div>
+            <h3>Negative</h3>
+            <pre id="negative"></pre>
+          </div>
+          <div>
+            <h3>Extras</h3>
+            <pre id="extras"></pre>
+          </div>
+        </div>
+        <div class="actions">
+          <button id="copyJson" type="button">Copy JSON</button>
+          <button id="copyPositive" type="button">Copy positive</button>
+        </div>
+      </section>
+    </div>
+
+    <div id="fileBrowser" class="modal hidden">
+      <div class="modal-dialog">
+        <header>
+          <h2>Select GGUF</h2>
+          <button id="closeBrowser" type="button">×</button>
+        </header>
+        <div class="modal-body">
+          <div class="breadcrumbs" id="breadcrumbs"></div>
+          <ul id="entries" class="entries"></ul>
+        </div>
+      </div>
+    </div>
+
+    <template id="entryTemplate">
+      <li>
+        <button type="button"></button>
+      </li>
+    </template>
+
+    <script src="app.js"></script>
+  </body>
+</html>
