@@ -3,6 +3,9 @@ const retryButton = document.getElementById('retryConnection');
 const ideaInput = document.getElementById('ideaInput');
 const sendButton = document.getElementById('sendIdea');
 const responseBox = document.getElementById('responseBox');
+const openKoboldButton = document.getElementById('openKobold');
+
+const PRESET_NAME = 'Prompter';
 
 let koboldUrl = null;
 
@@ -11,8 +14,17 @@ function setStatus(message, isError = false) {
   statusMessage.classList.toggle('status__message--error', isError);
 }
 
+function setKoboldButtonEnabled(isEnabled) {
+  if (!openKoboldButton) {
+    return;
+  }
+  openKoboldButton.disabled = !isEnabled;
+  openKoboldButton.setAttribute('aria-disabled', String(!isEnabled));
+}
+
 async function checkConnection() {
   setStatus('Checking Kobold connection…');
+  setKoboldButtonEnabled(false);
   try {
     const res = await fetch('/api/kobold/status');
     if (!res.ok) {
@@ -23,6 +35,7 @@ async function checkConnection() {
       koboldUrl = data.url || null;
       const label = data.model ? `Connected to ${data.model}` : 'Kobold connection established';
       setStatus(label, false);
+      setKoboldButtonEnabled(true);
       return true;
     }
     koboldUrl = null;
@@ -31,9 +44,11 @@ async function checkConnection() {
     } else {
       setStatus('Kobold instance not detected yet.', true);
     }
+    setKoboldButtonEnabled(false);
   } catch (error) {
     koboldUrl = null;
     setStatus(`Connection check failed: ${error.message}`, true);
+    setKoboldButtonEnabled(false);
   }
   return false;
 }
@@ -82,6 +97,24 @@ async function sendIdea() {
   }
 }
 
+async function openKobold() {
+  const connected = await ensureConnection();
+  if (!connected || !koboldUrl) {
+    setStatus('Unable to open Kobold. Please check the connection and try again.', true);
+    setKoboldButtonEnabled(false);
+    return;
+  }
+
+  const target = `${koboldUrl}/?preset=${encodeURIComponent(PRESET_NAME)}`;
+  const newWindow = window.open(target, '_blank');
+  if (newWindow) {
+    newWindow.opener = null;
+    setStatus(`Opening Kobold with the ${PRESET_NAME} preset…`, false);
+  } else {
+    setStatus('Popup blocked. Allow popups for this site to open Kobold.', true);
+  }
+}
+
 retryButton.addEventListener('click', checkConnection);
 sendButton.addEventListener('click', sendIdea);
 ideaInput.addEventListener('keydown', (event) => {
@@ -90,5 +123,10 @@ ideaInput.addEventListener('keydown', (event) => {
     sendIdea();
   }
 });
+
+if (openKoboldButton) {
+  setKoboldButtonEnabled(false);
+  openKoboldButton.addEventListener('click', openKobold);
+}
 
 checkConnection();
