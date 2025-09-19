@@ -8,12 +8,7 @@ const localStatus = $('#localStatus');
 const ggufInput = $('#ggufPath');
 const generateBtn = $('#generate');
 const resultBox = $('#result');
-const parsedBox = $('#parsed');
-const positiveBox = $('#positive');
-const negativeBox = $('#negative');
-const extrasBox = $('#extras');
-const copyJsonBtn = $('#copyJson');
-const copyPositiveBtn = $('#copyPositive');
+const copyPromptBtn = $('#copyPrompt');
 const browseBtn = $('#browse');
 const fileBrowser = $('#fileBrowser');
 const closeBrowserBtn = $('#closeBrowser');
@@ -99,26 +94,11 @@ function switchBackend(value) {
 
 function resetResult() {
   resultBox.textContent = 'Generating…';
-  parsedBox.classList.add('hidden');
-  positiveBox.textContent = '';
-  negativeBox.textContent = '';
-  extrasBox.textContent = '';
 }
 
 function renderResult(content) {
   state.lastResponse = content;
   resultBox.textContent = content;
-  try {
-    const parsed = JSON.parse(content);
-    positiveBox.textContent = parsed.prompt || parsed.positive || '';
-    negativeBox.textContent = parsed.negative || '';
-    extrasBox.textContent = parsed.extras ? JSON.stringify(parsed.extras, null, 2) : '';
-    parsedBox.classList.remove('hidden');
-    state.lastJson = parsed;
-  } catch (error) {
-    parsedBox.classList.add('hidden');
-    state.lastJson = null;
-  }
 }
 
 async function generate() {
@@ -176,16 +156,8 @@ function copyToClipboard(text) {
   });
 }
 
-function copyJson() {
+function copyPrompt() {
   if (state.lastResponse) {
-    copyToClipboard(state.lastResponse);
-  }
-}
-
-function copyPositive() {
-  if (state.lastJson) {
-    copyToClipboard(state.lastJson.prompt || state.lastJson.positive || '');
-  } else if (state.lastResponse) {
     copyToClipboard(state.lastResponse);
   }
 }
@@ -268,8 +240,7 @@ backendSelect.addEventListener('change', (event) => {
 });
 
 generateBtn.addEventListener('click', generate);
-copyJsonBtn.addEventListener('click', copyJson);
-copyPositiveBtn.addEventListener('click', copyPositive);
+copyPromptBtn.addEventListener('click', copyPrompt);
 browseBtn.addEventListener('click', () => showBrowser(state.browserPath));
 closeBrowserBtn.addEventListener('click', hideBrowser);
 fileBrowser.addEventListener('click', (event) => {
