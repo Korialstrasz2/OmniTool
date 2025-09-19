@@ -1,6 +1,10 @@
 @echo off
 setlocal
 
+rem Ensure Python ignores user site-packages so installations stay isolated to the
+rem virtual environment and avoid permission issues with global packages.
+set PYTHONNOUSERSITE=1
+
 set "SCRIPT_DIR=%~dp0"
 cd /d "%SCRIPT_DIR%"
 set "VENV_DIR=%SCRIPT_DIR%.venv"
