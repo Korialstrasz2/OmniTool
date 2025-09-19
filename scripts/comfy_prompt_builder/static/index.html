@@ -3,179 +3,36 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Flux Prompt Builder</title>
+    <title>Prompt Creator</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="layout">
-      <header>
-        <h1>Flux Prompt Builder</h1>
-        <p>
-          Turn a quick idea into a fully-formed Flux prompt. This tool focuses
-          exclusively on the prompt text—no image parameters, no samplers, no
-          CFG values. Connect to a running KoboldCpp server or point directly to
-          a local <code>.gguf</code> model.
+    <main class="app">
+      <header class="app__header">
+        <h1>Prompt Creator</h1>
+        <p class="app__subtitle">
+          Enter an idea and let the connected Kobold service expand it into a rich text-to-image prompt.
         </p>
       </header>
 
-      <section class="panel">
-        <h2>Prompt format</h2>
-        <p class="hint">
-          The model expands every idea into four flowing sentences covering the
-          subject, scene/environment, style/medium, and technical modifiers.
-          Expect a single text string with descriptions only—never parameter
-          blocks or JSON.
-        </p>
-        <div class="examples-list">
-          <article>
-            <h3>Idea: flower. sunset</h3>
-            <p>
-              A single vivid wildflower standing tall in the foreground of a
-              golden meadow at dusk. The horizon glows with warm orange and
-              lavender clouds while distant hills fade into soft haze. Style:
-              cinematic photography with shallow depth of field and tactile
-              macro detail. Technical: golden hour glow, gentle lens flare,
-              creamy bokeh, ultra crisp textures, 8k clarity.
-            </p>
-          </article>
-          <article>
-            <h3>Idea: snowy mountain cabin</h3>
-            <p>
-              A hand-built log cabin with smoke curling from the chimney nestled
-              beside frost-laden pines. Moonlight reflects off untouched alpine
-              snowdrifts and a star-studded peak towering behind. Style:
-              hyperreal winter landscape photography with subtle film grain.
-              Technical: midnight blue palette, long exposure shimmer,
-              wide-angle composition, crystalline highlights, 8k definition.
-            </p>
-          </article>
-          <article>
-            <h3>Idea: retro-futuristic city skyline</h3>
-            <p>
-              A sweeping skyline of retro-futuristic skyscrapers crowned with
-              chrome spires and neon billboards. Elevated highways weave between
-              hovering transit pods above a sunset-lit harbor. Style: vibrant
-              digital illustration blending art deco and synthwave aesthetics.
-              Technical: magenta and cyan bloom lighting, atmospheric haze,
-              cinematic framing, ultra detailed reflections, 32mm lens
-              perspective.
-            </p>
-          </article>
-        </div>
+      <section class="status" aria-live="polite">
+        <div id="connectionStatus" class="status__message">Checking Kobold connection…</div>
+        <button id="retryConnection" type="button" class="button">Retry connection</button>
       </section>
 
-      <section class="panel">
-        <h2>Model Source</h2>
-        <div class="field">
-          <label for="backend">Backend</label>
-          <select id="backend">
-            <option value="koboldcpp">KoboldCpp server</option>
-            <option value="local">Local GGUF</option>
-          </select>
-        </div>
-
-        <div id="koboldOptions" class="field-group">
-          <label for="koboldUrl">KoboldCpp server URL</label>
-          <input id="koboldUrl" placeholder="http://127.0.0.1:5001" />
-          <p class="hint">
-            Leave empty to use the default address. Ensure KoboldCpp is running
-            with its API enabled.
-          </p>
-          <div id="koboldStatus" class="status"></div>
-        </div>
-
-        <div id="localOptions" class="field-group hidden">
-          <label for="ggufPath">GGUF path</label>
-          <div class="file-row">
-            <input id="ggufPath" placeholder="Select a .gguf model" />
-            <button id="browse" type="button">Browse…</button>
-          </div>
-          <div id="localStatus" class="status"></div>
-          <details class="hint">
-            <summary>Runtime options</summary>
-            <p>
-              Adjust with environment variables before launching:
-              <code>GGUF_CONTEXT</code>, <code>GGUF_THREADS</code>,
-              <code>GGUF_N_GPU_LAYERS</code>, <code>GGUF_SEARCH_PATHS</code>.
-            </p>
-          </details>
-        </div>
-      </section>
-
-      <section class="panel">
-        <h2>Prompt Controls</h2>
-        <div class="grid">
-          <label>
-            <span>Temperature</span>
-            <input id="temperature" type="number" step="0.05" value="0.6" />
-          </label>
-          <label>
-            <span>Top P</span>
-            <input id="top_p" type="number" step="0.05" value="0.9" />
-          </label>
-          <label>
-            <span>Top K</span>
-            <input id="top_k" type="number" step="1" placeholder="Default" />
-          </label>
-          <label>
-            <span>Repeat penalty</span>
-            <input id="repeat_penalty" type="number" step="0.05" placeholder="Default" />
-          </label>
-          <label>
-            <span>Seed</span>
-            <input id="seed" type="number" step="1" placeholder="Random" />
-          </label>
-          <label>
-            <span>Max tokens</span>
-            <input id="max_tokens" type="number" step="50" value="600" />
-          </label>
-        </div>
-
-        <label>
-          <span>Idea</span>
-          <input id="idea" placeholder="e.g., neon-lit rainy alley portrait" />
+      <section class="interaction">
+        <label class="field" for="ideaInput">
+          <span class="field__label">Idea</span>
+          <textarea id="ideaInput" class="field__control" rows="5" placeholder="Describe your concept"></textarea>
         </label>
-
-        <label>
-          <span>System prompt</span>
-          <textarea id="system" rows="5" placeholder="Leave empty to use the built-in template"></textarea>
-        </label>
-
-        <label>
-          <span>Few-shot examples</span>
-          <textarea id="examples" rows="5" placeholder="Paste optional examples to steer formatting"></textarea>
-        </label>
-
-        <button id="generate" type="button" class="primary">Generate prompt</button>
+        <button id="sendIdea" type="button" class="button button--primary">Send to Kobold</button>
       </section>
 
-      <section class="panel">
-        <h2>Result</h2>
-        <div id="result" class="result">No generation yet.</div>
-        <div class="actions">
-          <button id="copyPrompt" type="button">Copy prompt</button>
-        </div>
+      <section class="output" aria-live="polite">
+        <span class="field__label">Response</span>
+        <pre id="responseBox" class="output__box">No response yet.</pre>
       </section>
-    </div>
-
-    <div id="fileBrowser" class="modal hidden">
-      <div class="modal-dialog">
-        <header>
-          <h2>Select GGUF</h2>
-          <button id="closeBrowser" type="button">×</button>
-        </header>
-        <div class="modal-body">
-          <div class="breadcrumbs" id="breadcrumbs"></div>
-          <ul id="entries" class="entries"></ul>
-        </div>
-      </div>
-    </div>
-
-    <template id="entryTemplate">
-      <li>
-        <button type="button"></button>
-      </li>
-    </template>
+    </main>
 
     <script src="app.js"></script>
   </body>
