@@ -4,36 +4,38 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Prompt Creator</title>
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
     <main class="app">
-      <header class="app__header">
-        <h1>Prompt Creator</h1>
-        <p class="app__subtitle">
-          Enter an idea and let the connected Kobold service expand it into a rich text-to-image prompt.
-        </p>
-      </header>
+      <h1 class="app__title">Prompt Creator</h1>
+      <p class="app__intro">
+        Type your idea, send it, and read the response that Kobold generates from the shared system prompt.
+      </p>
 
       <section class="status" aria-live="polite">
-        <div id="connectionStatus" class="status__message">Checking Kobold connection…</div>
-        <button id="retryConnection" type="button" class="button">Retry connection</button>
+        <p id="connectionStatus" class="status__message">Checking Kobold connection…</p>
+        <button id="retryConnection" type="button" class="button">Try again</button>
       </section>
 
-      <section class="interaction">
-        <label class="field" for="ideaInput">
-          <span class="field__label">Idea</span>
-          <textarea id="ideaInput" class="field__control" rows="5" placeholder="Describe your concept"></textarea>
-        </label>
-        <button id="sendIdea" type="button" class="button button--primary">Send to Kobold</button>
-      </section>
+      <label class="field" for="ideaInput">
+        <span class="field__label">Idea</span>
+        <textarea
+          id="ideaInput"
+          class="field__control"
+          rows="4"
+          placeholder="Describe what you would like the prompt to cover"
+        ></textarea>
+      </label>
 
-      <section class="output" aria-live="polite">
+      <button id="sendIdea" type="button" class="button button--primary">Send</button>
+
+      <label class="field" for="responseBox">
         <span class="field__label">Response</span>
-        <pre id="responseBox" class="output__box">No response yet.</pre>
-      </section>
+        <textarea id="responseBox" class="field__control field__control--output" rows="8" readonly>No response yet.</textarea>
+      </label>
     </main>
 
-    <script src="app.js"></script>
+    <script src="/static/app.js"></script>
   </body>
 </html>
