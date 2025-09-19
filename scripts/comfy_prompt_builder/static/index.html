@@ -3,19 +3,66 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Comfy Prompt Builder</title>
+    <title>Flux Prompt Builder</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <div class="layout">
       <header>
-        <h1>Comfy Prompt Builder</h1>
+        <h1>Flux Prompt Builder</h1>
         <p>
-          Generate polished ComfyUI prompts using your favourite model. Connect
-          to a running KoboldCpp server or point directly to a local
-          <code>.gguf</code>.
+          Turn a quick idea into a fully-formed Flux prompt. This tool focuses
+          exclusively on the prompt text—no image parameters, no samplers, no
+          CFG values. Connect to a running KoboldCpp server or point directly to
+          a local <code>.gguf</code> model.
         </p>
       </header>
+
+      <section class="panel">
+        <h2>Prompt format</h2>
+        <p class="hint">
+          The model expands every idea into four flowing sentences covering the
+          subject, scene/environment, style/medium, and technical modifiers.
+          Expect a single text string with descriptions only—never parameter
+          blocks or JSON.
+        </p>
+        <div class="examples-list">
+          <article>
+            <h3>Idea: flower. sunset</h3>
+            <p>
+              A single vivid wildflower standing tall in the foreground of a
+              golden meadow at dusk. The horizon glows with warm orange and
+              lavender clouds while distant hills fade into soft haze. Style:
+              cinematic photography with shallow depth of field and tactile
+              macro detail. Technical: golden hour glow, gentle lens flare,
+              creamy bokeh, ultra crisp textures, 8k clarity.
+            </p>
+          </article>
+          <article>
+            <h3>Idea: snowy mountain cabin</h3>
+            <p>
+              A hand-built log cabin with smoke curling from the chimney nestled
+              beside frost-laden pines. Moonlight reflects off untouched alpine
+              snowdrifts and a star-studded peak towering behind. Style:
+              hyperreal winter landscape photography with subtle film grain.
+              Technical: midnight blue palette, long exposure shimmer,
+              wide-angle composition, crystalline highlights, 8k definition.
+            </p>
+          </article>
+          <article>
+            <h3>Idea: retro-futuristic city skyline</h3>
+            <p>
+              A sweeping skyline of retro-futuristic skyscrapers crowned with
+              chrome spires and neon billboards. Elevated highways weave between
+              hovering transit pods above a sunset-lit harbor. Style: vibrant
+              digital illustration blending art deco and synthwave aesthetics.
+              Technical: magenta and cyan bloom lighting, atmospheric haze,
+              cinematic framing, ultra detailed reflections, 32mm lens
+              perspective.
+            </p>
+          </article>
+        </div>
+      </section>
 
       <section class="panel">
         <h2>Model Source</h2>
@@ -105,23 +152,8 @@
       <section class="panel">
         <h2>Result</h2>
         <div id="result" class="result">No generation yet.</div>
-        <div id="parsed" class="parsed hidden">
-          <div>
-            <h3>Positive</h3>
-            <pre id="positive"></pre>
-          </div>
-          <div>
-            <h3>Negative</h3>
-            <pre id="negative"></pre>
-          </div>
-          <div>
-            <h3>Extras</h3>
-            <pre id="extras"></pre>
-          </div>
-        </div>
         <div class="actions">
-          <button id="copyJson" type="button">Copy JSON</button>
-          <button id="copyPositive" type="button">Copy positive</button>
+          <button id="copyPrompt" type="button">Copy prompt</button>
         </div>
       </section>
     </div>
