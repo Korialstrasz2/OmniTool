@@ -5,4 +5,3 @@ pymupdf>=1.23
 fastapi>=0.110
 uvicorn[standard]>=0.28
 requests>=2.31
-llama-cpp-python>=0.2.90
