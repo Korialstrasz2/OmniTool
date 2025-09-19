@@ -1,8 +1,8 @@
 :root {
   color-scheme: dark;
   font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
-  background: #0f1115;
-  color: #f3f4f6;
+  background-color: #0f1116;
+  color: #f5f7ff;
 }
 
 * {
@@ -15,91 +15,88 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 32px 16px;
-  background: radial-gradient(circle at top, rgba(50, 86, 255, 0.25), transparent 55%),
-    radial-gradient(circle at bottom, rgba(42, 198, 255, 0.2), transparent 45%),
-    #0b0d12;
+  padding: 24px;
+  background: radial-gradient(circle at top, rgba(112, 134, 255, 0.2), transparent 55%),
+    radial-gradient(circle at bottom, rgba(63, 194, 255, 0.18), transparent 45%),
+    #0a0c12;
 }
 
 .app {
-  width: min(720px, 100%);
+  width: min(520px, 100%);
   display: grid;
-  gap: 24px;
-  background: rgba(20, 24, 33, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 20px;
-  padding: 32px;
-  box-shadow: 0 40px 90px -50px rgba(15, 23, 42, 0.8);
+  gap: 18px;
+  padding: 28px;
+  background: rgba(16, 19, 29, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 18px;
+  box-shadow: 0 28px 70px -40px rgba(8, 12, 24, 0.9);
 }
 
-.app__header {
-  display: grid;
-  gap: 8px;
-}
-
-.app__header h1 {
+.app__title {
   margin: 0;
-  font-size: clamp(1.75rem, 3vw, 2.25rem);
+  font-size: clamp(1.6rem, 3vw, 2.1rem);
   font-weight: 600;
 }
 
-.app__subtitle {
+.app__intro {
   margin: 0;
-  color: #c7cad8;
-  font-size: 1rem;
+  color: #c9ccda;
+  font-size: 0.95rem;
+  line-height: 1.5;
 }
 
 .status {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-  padding: 16px;
+  gap: 10px;
+  padding: 14px;
   border-radius: 14px;
-  background: rgba(26, 31, 43, 0.75);
+  background: rgba(22, 27, 39, 0.9);
 }
 
 .status__message {
   flex: 1 1 auto;
-  font-size: 0.95rem;
-  color: #8eb5ff;
+  margin: 0;
+  font-size: 0.9rem;
+  color: #96b8ff;
 }
 
 .status__message.status__message--error {
-  color: #ff8da1;
-}
-
-.interaction {
-  display: grid;
-  gap: 16px;
+  color: #ff9fb1;
 }
 
 .field {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .field__label {
-  font-size: 0.95rem;
-  color: #c7cad8;
+  font-size: 0.85rem;
+  letter-spacing: 0.01em;
+  color: #cfd3e5;
 }
 
 .field__control {
   font: inherit;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(12, 15, 22, 0.9);
+  background: rgba(10, 13, 21, 0.95);
   color: inherit;
   padding: 12px 14px;
   resize: vertical;
-  min-height: 140px;
-  transition: border-color 0.2s ease;
+  min-height: 120px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .field__control:focus {
   outline: none;
-  border-color: rgba(130, 180, 255, 0.8);
-  box-shadow: 0 0 0 3px rgba(98, 142, 255, 0.2);
+  border-color: rgba(132, 176, 255, 0.85);
+  box-shadow: 0 0 0 3px rgba(104, 150, 255, 0.2);
+}
+
+.field__control--output {
+  min-height: 180px;
+  white-space: pre-wrap;
 }
 
 .button {
@@ -108,20 +105,20 @@ body {
   border-radius: 999px;
   padding: 12px 22px;
   cursor: pointer;
-  background: rgba(98, 142, 255, 0.18);
-  color: #9fc1ff;
+  background: rgba(108, 142, 255, 0.18);
+  color: #a9c5ff;
   transition: background 0.2s ease, transform 0.2s ease, color 0.2s ease;
 }
 
 .button:hover,
 .button:focus-visible {
-  background: rgba(98, 142, 255, 0.28);
-  color: #c5d8ff;
+  background: rgba(108, 142, 255, 0.3);
+  color: #d0dcff;
 }
 
 .button:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(114, 178, 255, 0.35);
+  box-shadow: 0 0 0 3px rgba(108, 142, 255, 0.3);
 }
 
 .button:active {
@@ -129,39 +126,25 @@ body {
 }
 
 .button--primary {
-  background: linear-gradient(135deg, #7b5cff, #4da6ff);
+  background: linear-gradient(135deg, #7d5cff, #55a8ff);
   color: #ffffff;
   font-weight: 600;
 }
 
 .button--primary:hover,
 .button--primary:focus-visible {
-  background: linear-gradient(135deg, #8e6bff, #61b6ff);
+  background: linear-gradient(135deg, #8a68ff, #63b5ff);
   color: #ffffff;
 }
 
-.output {
-  display: grid;
-  gap: 10px;
-}
-
-.output__box {
-  margin: 0;
-  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-  border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  background: rgba(12, 16, 24, 0.95);
-  padding: 16px;
-  min-height: 160px;
-  white-space: pre-wrap;
-  line-height: 1.6;
-  color: #e5e9f5;
-}
-
 @media (max-width: 540px) {
+  body {
+    padding: 16px;
+  }
+
   .app {
-    padding: 24px;
-    gap: 20px;
+    padding: 22px;
+    gap: 16px;
   }
 
   .status {
@@ -171,6 +154,5 @@ body {
 
   .button {
     width: 100%;
-    justify-content: center;
   }
 }

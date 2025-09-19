@@ -19,18 +19,30 @@ async function checkConnection() {
       throw new Error(await res.text());
     }
     const data = await res.json();
-    koboldUrl = data.url || null;
     if (data.online) {
+      koboldUrl = data.url || null;
       const label = data.model ? `Connected to ${data.model}` : 'Kobold connection established';
       setStatus(label, false);
-    } else if (data.error) {
+      return true;
+    }
+    koboldUrl = null;
+    if (data.error) {
       setStatus(`Unable to reach Kobold: ${data.error}`, true);
     } else {
       setStatus('Kobold instance not detected yet.', true);
     }
   } catch (error) {
+    koboldUrl = null;
     setStatus(`Connection check failed: ${error.message}`, true);
   }
+  return false;
+}
+
+async function ensureConnection() {
+  if (koboldUrl) {
+    return true;
+  }
+  return checkConnection();
 }
 
 async function sendIdea() {
@@ -41,7 +53,13 @@ async function sendIdea() {
     return;
   }
 
-  responseBox.textContent = 'Waiting for Kobold…';
+  const connected = await ensureConnection();
+  if (!connected) {
+    responseBox.value = 'Unable to reach Kobold. Please check the server and try again.';
+    return;
+  }
+
+  responseBox.value = 'Waiting for Kobold…';
   try {
     const res = await fetch('/api/generate_prompt', {
       method: 'POST',
@@ -53,12 +71,13 @@ async function sendIdea() {
       throw new Error(message || 'Request failed');
     }
     const data = await res.json();
-    responseBox.textContent = data.content || 'Kobold returned no text.';
+    responseBox.value = data.content || 'Kobold returned no text.';
     if (data.model) {
       setStatus(`Connected to ${data.model}`, false);
     }
   } catch (error) {
-    responseBox.textContent = `Error: ${error.message}`;
+    koboldUrl = null;
+    responseBox.value = `Error: ${error.message}`;
     setStatus('Prompt request failed. Retry after checking Kobold.', true);
   }
 }
@@ -67,6 +86,7 @@ retryButton.addEventListener('click', checkConnection);
 sendButton.addEventListener('click', sendIdea);
 ideaInput.addEventListener('keydown', (event) => {
   if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+    event.preventDefault();
     sendIdea();
   }
 });
