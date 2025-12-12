@@ -40,5 +40,11 @@
     "name": "Comfy Prompt Builder",
     "description": "Generate ComfyUI prompts using KoboldCpp or local GGUF models",
     "command": "python comfy_prompt_builder/start.py"
+  },
+  {
+    "id": "hunyuan3d-manager",
+    "name": "Hunyuan3D 2.1 Manager",
+    "description": "Clone, update, and run the Tencent Hunyuan3D 2.1 toolkit with a rich command builder",
+    "command": ""
   }
 ]
