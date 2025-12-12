@@ -1,0 +1,163 @@
+{% extends 'base.html' %}
+{% block content %}
+  <h2>Hunyuan3D 2.1 Manager</h2>
+  <p class="lead">
+    Control installation, updates, and end-to-end usage of the
+    <a href="https://github.com/tencent-hunyuan/hunyuan3d-2.1" target="_blank" rel="noreferrer">Hunyuan3D 2.1</a>
+    toolkit. Save your preferred checkout path, sync the repository, install dependencies, and craft launch commands
+    with prompts, checkpoints, and runtime flags.
+  </p>
+
+  <section class="card">
+    <div class="card-header">
+      <h3>Repository & environment</h3>
+      <p>Keep the repo path, upstream URL, and environment variables on file.</p>
+    </div>
+    <form class="stack" method="post" action="{{ url_for('hunyuan3d_save_settings') }}">
+      <div class="form-grid">
+        <label>
+          <span>Repository path</span>
+          <input type="text" name="repo_path" value="{{ settings['repo_path'] }}" required>
+        </label>
+        <label>
+          <span>Repository URL</span>
+          <input type="text" name="repo_url" value="{{ settings['repo_url'] }}" required>
+        </label>
+      </div>
+      <label>
+        <span>Environment overrides (KEY=VALUE, one per line)</span>
+        <textarea name="env_overrides" rows="3" placeholder="HUGGING_FACE_HUB_TOKEN=...&#10;HF_ENDPOINT=...">{{ settings['env_overrides'] }}</textarea>
+      </label>
+      <div class="actions">
+        <button type="submit">Save settings</button>
+      </div>
+    </form>
+    <form method="post" action="{{ url_for('hunyuan3d_sync_repo') }}" class="inline-form actions">
+      <input type="hidden" name="repo_path" value="{{ settings['repo_path'] }}">
+      <input type="hidden" name="repo_url" value="{{ settings['repo_url'] }}">
+      <button type="submit">Clone / Update repository</button>
+    </form>
+    <div class="status">
+      <p><strong>Status:</strong> {{ repo_status['message'] }}</p>
+      {% if repo_status['exists'] %}
+        <ul>
+          {% if repo_status.get('branch') %}<li>Branch: {{ repo_status['branch'] }}</li>{% endif %}
+          {% if repo_status.get('revision') %}<li>Revision: {{ repo_status['revision'] }}</li>{% endif %}
+          <li>Clean working tree: {{ 'Yes' if not repo_status.get('dirty') else 'Pending changes' }}</li>
+          <li>Requirements file: {{ 'Found' if requirements_exists else 'Missing' }}</li>
+          <li>Editable install target: {{ 'Available' if setup_exists else 'Not detected' }}</li>
+        </ul>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-header">
+      <h3>Dependency install & updates</h3>
+      <p>Pull Python dependencies from the repo and optionally add extra packages (CUDA wheels, acceleration libs, etc.).</p>
+    </div>
+    <form class="stack" method="post" action="{{ url_for('hunyuan3d_install_deps') }}">
+      <input type="hidden" name="repo_path" value="{{ settings['repo_path'] }}">
+      <label>
+        <span>Additional packages (one per line)</span>
+        <textarea name="extra_packages" rows="3" placeholder="xformers==0.0.24&#10;nvdiffrast==0.3.1"></textarea>
+      </label>
+      <button type="submit">Install / upgrade dependencies</button>
+      <p class="help-text">Commands run: <code>pip install -r requirements.txt</code>{% if setup_exists %}, <code>pip install -e .</code>{% endif %}, plus any extras you specify.</p>
+    </form>
+  </section>
+
+  <section class="card">
+    <div class="card-header">
+      <h3>Usage & command builder</h3>
+      <p>Launch the demo UI or craft reproducible generation commands with prompts, checkpoints, and execution flags.</p>
+    </div>
+    <form class="stack" method="post" action="{{ url_for('hunyuan3d_run') }}">
+      <input type="hidden" name="repo_path" value="{{ settings['repo_path'] }}">
+      <div class="form-grid">
+        <label>
+          <span>Entry script</span>
+          <input type="text" name="entry_script" value="app.py" placeholder="app.py, gradio_app.py, tools/run.py" required>
+        </label>
+        <label>
+          <span>Mode</span>
+          <select name="mode">
+            <option value="demo">Demo / Gradio UI</option>
+            <option value="text-to-3d">Text / image to 3D job</option>
+            <option value="custom">Custom arguments</option>
+          </select>
+        </label>
+      </div>
+      <div class="form-grid">
+        <label>
+          <span>Prompt</span>
+          <input type="text" name="prompt" placeholder="A cinematic dragon statue">
+        </label>
+        <label>
+          <span>Negative prompt</span>
+          <input type="text" name="negative_prompt" placeholder="blurry, low quality">
+        </label>
+      </div>
+      <div class="form-grid">
+        <label>
+          <span>Steps</span>
+          <input type="number" name="steps" min="1" placeholder="50">
+        </label>
+        <label>
+          <span>Seed</span>
+          <input type="text" name="seed" placeholder="1234">
+        </label>
+        <label>
+          <span>CFG scale</span>
+          <input type="text" name="cfg_scale" placeholder="7.5">
+        </label>
+      </div>
+      <div class="form-grid">
+        <label>
+          <span>Checkpoint</span>
+          <input type="text" name="checkpoint" placeholder="checkpoints/hunyuan3d.ckpt">
+        </label>
+        <label>
+          <span>Config file</span>
+          <input type="text" name="config_path" placeholder="configs/inference.yaml">
+        </label>
+        <label>
+          <span>Camera / trajectory</span>
+          <input type="text" name="camera_path" placeholder="assets/camera.json">
+        </label>
+      </div>
+      <div class="form-grid">
+        <label>
+          <span>Output directory</span>
+          <input type="text" name="output_dir" placeholder="outputs/dragon_run">
+        </label>
+        <label>
+          <span>Precision</span>
+          <input type="text" name="precision" placeholder="fp16 / bf16 / fp32">
+        </label>
+        <label>
+          <span>Device</span>
+          <input type="text" name="device" placeholder="cuda:0 / cpu">
+        </label>
+      </div>
+      <fieldset class="options">
+        <legend>Runtime flags</legend>
+        <label><input type="checkbox" name="flags" value="share"> Share Gradio UI</label>
+        <label><input type="checkbox" name="flags" value="use_xformers"> Enable xFormers</label>
+        <label><input type="checkbox" name="flags" value="enable_fp16"> Force FP16</label>
+      </fieldset>
+      <label>
+        <span>Extra CLI arguments (space-separated)</span>
+        <textarea name="extra_args" rows="3" placeholder="--batch 2 --height 512 --width 512"></textarea>
+      </label>
+      <label>
+        <span>Environment overrides for this run (KEY=VALUE)</span>
+        <textarea name="env_overrides" rows="2" placeholder="HUGGING_FACE_HUB_TOKEN=...">{{ settings['env_overrides'] }}</textarea>
+      </label>
+      <div class="actions">
+        <button type="submit">Launch Hunyuan3D command</button>
+        <p class="help-text">Runs inside <code>{{ settings['repo_path'] }}</code> so relative paths match the repo layout.</p>
+      </div>
+    </form>
+  </section>
+{% endblock %}

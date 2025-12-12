@@ -8,12 +8,102 @@ body {
 header {
   margin-bottom: 1rem;
 }
+.lead {
+  color: #333;
+  line-height: 1.5;
+}
 .tool-list {
   list-style: none;
   padding: 0;
 }
 .tool-list li {
   margin-bottom: 0.5rem;
+}
+.card {
+  background: #fff;
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.card-header {
+  margin-bottom: 0.75rem;
+}
+.card-header h3 {
+  margin: 0 0 0.25rem 0;
+}
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+.form-grid label,
+.stack label,
+.options label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-weight: 600;
+  color: #222;
+}
+input[type="text"],
+input[type="number"],
+textarea,
+select {
+  padding: 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 0.95rem;
+  font-family: inherit;
+}
+textarea {
+  resize: vertical;
+}
+button {
+  align-self: flex-start;
+  background: #0069d9;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 0.5rem 0.9rem;
+  cursor: pointer;
+}
+button:hover {
+  background: #0052ab;
+}
+.actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+.inline-form {
+  margin: 0;
+}
+.status {
+  background: #f0f4ff;
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  border: 1px solid #d6e2ff;
+}
+.status ul {
+  margin: 0.5rem 0 0 1rem;
+}
+.options {
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 0.75rem 0.75rem 0.25rem;
+}
+.options legend {
+  font-weight: 700;
+}
+.help-text {
+  color: #555;
+  margin: 0;
 }
 .flashes {
   list-style: none;
