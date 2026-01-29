@@ -1,8 +1,2 @@
 __pycache__/
 *.pyc
-.venv/
-.deps_installed
-inputs/
-outputs/
-models/
-third_party/
