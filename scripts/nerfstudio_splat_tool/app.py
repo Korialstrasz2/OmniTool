@@ -21,6 +21,7 @@ OUTPUTS_DIR = BASE_DIR / "outputs"
 MODELS_DIR = BASE_DIR / "models"
 THIRD_PARTY_DIR = BASE_DIR / "third_party"
 COLMAP_DIR = THIRD_PARTY_DIR / "colmap"
+COLMAP_SHIM_DIR = THIRD_PARTY_DIR / "colmap_shim"
 REQUIREMENTS_FILE = BASE_DIR / "requirements.txt"
 
 COLMAP_ZIP_URLS = (
@@ -210,6 +211,98 @@ def ensure_colmap() -> Path:
         return download_colmap()
 
 
+def resolve_colmap_executable(colmap_bin: Path) -> Path:
+    candidates = ["COLMAP.exe", "colmap.exe", "COLMAP", "colmap"]
+    for candidate in candidates:
+        exe_path = colmap_bin / candidate
+        if exe_path.exists():
+            return exe_path
+    raise FileNotFoundError(f"COLMAP executable not found in {colmap_bin}.")
+
+
+def colmap_supports_sift_gpu(colmap_exe: Path, env: Dict[str, str]) -> bool:
+    result = subprocess.run(
+        [str(colmap_exe), "feature_extractor", "--help"],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    help_text = f"{result.stdout}\n{result.stderr}"
+    return "--SiftExtraction.use_gpu" in help_text
+
+
+def write_colmap_shim(colmap_exe: Path) -> Path:
+    COLMAP_SHIM_DIR.mkdir(parents=True, exist_ok=True)
+    if os.name == "nt":
+        shim_path = COLMAP_SHIM_DIR / "colmap.bat"
+        shim_path.write_text(
+            "@echo off\n"
+            "setlocal enabledelayedexpansion\n"
+            f"set \"COLMAP_EXE={colmap_exe}\"\n"
+            "set \"args=\"\n"
+            ":loop\n"
+            "if \"%~1\"==\"\" goto done\n"
+            "if /I \"%~1\"==\"--SiftExtraction.use_gpu\" (\n"
+            "  shift\n"
+            "  shift\n"
+            "  goto loop\n"
+            ")\n"
+            "set args=!args! \"%~1\"\n"
+            "shift\n"
+            "goto loop\n"
+            ":done\n"
+            "\"%COLMAP_EXE%\" %args%\n",
+            encoding="utf-8",
+        )
+    else:
+        shim_path = COLMAP_SHIM_DIR / "colmap"
+        shim_path.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -e\n"
+            f"COLMAP_EXE=\"{colmap_exe}\"\n"
+            "args=()\n"
+            "skip_next=0\n"
+            "for arg in \"$@\"; do\n"
+            "  if [ \"$skip_next\" -eq 1 ]; then\n"
+            "    skip_next=0\n"
+            "    continue\n"
+            "  fi\n"
+            "  case \"$arg\" in\n"
+            "    --SiftExtraction.use_gpu)\n"
+            "      skip_next=1\n"
+            "      ;;\n"
+            "    --SiftExtraction.use_gpu=*)\n"
+            "      ;;\n"
+            "    *)\n"
+            "      args+=(\"$arg\")\n"
+            "      ;;\n"
+            "  esac\n"
+            "done\n"
+            "exec \"$COLMAP_EXE\" \"${args[@]}\"\n",
+            encoding="utf-8",
+        )
+        shim_path.chmod(0o755)
+    return COLMAP_SHIM_DIR
+
+
+def ensure_colmap_gpu_flag_compatibility(
+    env: Dict[str, str],
+    colmap_bin: Path,
+    logs: List[str],
+) -> Dict[str, str]:
+    colmap_exe = resolve_colmap_executable(colmap_bin)
+    if colmap_supports_sift_gpu(colmap_exe, env):
+        return env
+    shim_dir = write_colmap_shim(colmap_exe)
+    env["PATH"] = f"{shim_dir}{os.pathsep}{env.get('PATH', '')}"
+    logs.append(
+        "COLMAP build does not support --SiftExtraction.use_gpu; "
+        "using a compatibility shim to drop the flag."
+    )
+    return env
+
+
 def check_python_version() -> None:
     if sys.version_info < (3, 10):
         raise RuntimeError("Python 3.10+ is required.")
@@ -259,6 +352,7 @@ def check_dependencies() -> Tuple[Dict[str, str], List[str], bool, bool]:
     env["RICH_NO_EMOJI"] = "1"
     colmap_bin = ensure_colmap()
     env["PATH"] = f"{colmap_bin}{os.pathsep}{env.get('PATH', '')}"
+    env = ensure_colmap_gpu_flag_compatibility(env, colmap_bin, logs)
 
     nerfstudio_missing = not shutil.which("ns-process-data", path=env.get("PATH"))
     if nerfstudio_missing:
