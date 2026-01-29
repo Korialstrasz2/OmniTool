@@ -23,8 +23,9 @@ THIRD_PARTY_DIR = BASE_DIR / "third_party"
 COLMAP_DIR = THIRD_PARTY_DIR / "colmap"
 REQUIREMENTS_FILE = BASE_DIR / "requirements.txt"
 
-COLMAP_ZIP_URL = (
-    "https://github.com/colmap/colmap/releases/download/3.8/colmap-x64-windows.zip"
+COLMAP_ZIP_URLS = (
+    "https://github.com/colmap/colmap/releases/latest/download/colmap-x64-windows.zip",
+    "https://github.com/colmap/colmap/releases/download/3.8/colmap-x64-windows.zip",
 )
 
 DEFAULT_ITERATIONS = 2000
@@ -98,12 +99,24 @@ def download_colmap() -> Path:
     if archive_path.exists():
         archive_path.unlink()
     COLMAP_DIR.mkdir(parents=True, exist_ok=True)
-    with urllib.request.urlopen(COLMAP_ZIP_URL) as response:
-        archive_path.write_bytes(response.read())
-    with zipfile.ZipFile(archive_path, "r") as zip_ref:
-        zip_ref.extractall(COLMAP_DIR)
-    archive_path.unlink(missing_ok=True)
-    return find_colmap_bin()
+    errors: List[str] = []
+    for url in COLMAP_ZIP_URLS:
+        try:
+            request = urllib.request.Request(url, headers={"User-Agent": "OmniTool COLMAP downloader"})
+            with urllib.request.urlopen(request) as response:
+                archive_path.write_bytes(response.read())
+            with zipfile.ZipFile(archive_path, "r") as zip_ref:
+                zip_ref.extractall(COLMAP_DIR)
+            archive_path.unlink(missing_ok=True)
+            return find_colmap_bin()
+        except Exception as exc:  # pragma: no cover - network dependent
+            errors.append(f"{url}: {exc}")
+            archive_path.unlink(missing_ok=True)
+    raise RuntimeError(
+        "Failed to download COLMAP. "
+        "Please download COLMAP for Windows and extract it into "
+        f"{COLMAP_DIR}. Errors: {' | '.join(errors)}"
+    )
 
 
 def find_colmap_bin() -> Path:
