@@ -1,8 +1,9 @@
-Flask>=3.0
-Pillow>=9.0
-numpy>=1.24,<2.0
-opencv-python-headless>=4.8,<4.11
-pymupdf>=1.23
-fastapi>=0.110
-uvicorn[standard]>=0.28
-requests>=2.31
+gradio==4.44.1
+nerfstudio==1.1.2
+torch==2.2.2
+torchvision==0.17.2
+torchaudio==2.2.2
+numpy==1.26.4
+opencv-python==4.10.0.84
+pillow==10.4.0
+psutil==6.0.0

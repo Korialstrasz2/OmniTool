@@ -1,0 +1,41 @@
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: #0b0f19;
+  font-family: "Segoe UI", sans-serif;
+  color: #e6e6e6;
+}
+
+#viewer {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+#overlay {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+#overlay .title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+#overlay .subtitle {
+  opacity: 0.8;
+  margin-bottom: 6px;
+}
+
+#status {
+  font-size: 11px;
+  color: #9fd3ff;
+}
