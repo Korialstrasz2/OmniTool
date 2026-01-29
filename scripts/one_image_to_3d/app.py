@@ -15,13 +15,25 @@ ENGINE_SPECS = {
         "model_id": "depth-anything/Depth-Anything-V2-Small-hf",
         "description": "Fast previews with solid geometry.",
     },
+    "Depth Anything V2 Giant (ultra detail)": {
+        "model_id": "depth-anything/Depth-Anything-V2-Giant-hf",
+        "description": "Highest-detail Depth Anything backbone for max fidelity meshes.",
+    },
     "Depth Anything V2 Large (high detail)": {
         "model_id": "depth-anything/Depth-Anything-V2-Large-hf",
         "description": "Sharper depth boundaries and improved fine detail.",
     },
+    "MiDaS DPT Large (balanced)": {
+        "model_id": "Intel/dpt-large",
+        "description": "Strong all-around depth with stable surfaces.",
+    },
     "ZoeDepth NYU/KITTI (metric)": {
         "model_id": "Intel/zoedepth-nyu-kitti",
         "description": "Metric-aware depth with strong multi-surface consistency.",
+    },
+    "Custom / external model ID": {
+        "model_id": "",
+        "description": "Use any compatible depth model ID (Apple SHARP, custom fine-tunes, etc.).",
     },
 }
 
@@ -66,6 +78,14 @@ def estimate_depth(image: Image.Image, model_id: str) -> np.ndarray:
             align_corners=False,
         ).squeeze()
     return depth.cpu().numpy()
+
+
+def load_depth_map_image(path: str, size: Tuple[int, int]) -> np.ndarray:
+    depth_image = Image.open(path).convert("L")
+    if depth_image.size != size:
+        depth_image = depth_image.resize(size, Image.Resampling.BILINEAR)
+    depth_array = np.asarray(depth_image).astype(np.float32)
+    return normalize_depth(depth_array)
 
 
 def build_mesh(
@@ -117,6 +137,8 @@ def ensure_model_assets() -> None:
     """Download all configured models at startup so the UI stays responsive."""
     for engine in ENGINE_SPECS.values():
         model_id = engine["model_id"]
+        if not model_id:
+            continue
         processor = AutoImageProcessor.from_pretrained(model_id)
         model = AutoModelForDepthEstimation.from_pretrained(model_id)
         device = pick_device()
@@ -133,6 +155,12 @@ def load_images_from_paths(paths: Iterable[str], max_resolution: int) -> List[Im
             image.thumbnail((max_resolution, max_resolution), Image.Resampling.LANCZOS)
         images.append(image)
     return images
+
+
+def match_image_size(image: Image.Image, size: Tuple[int, int]) -> Image.Image:
+    if image.size != size:
+        return image.resize(size, Image.Resampling.LANCZOS)
+    return image
 
 
 def parse_view_angles(view_angles: str, count: int) -> List[float]:
@@ -168,6 +196,9 @@ def generate_scene(
     multi_images: List[str],
     mode: str,
     engine: str,
+    custom_model_id: str,
+    depth_source: str,
+    depth_maps: List[str],
     max_resolution: int,
     depth_scale: float,
     xy_scale: float,
@@ -185,20 +216,47 @@ def generate_scene(
         images = load_images_from_paths(multi_images, max_resolution)
 
     model_id = ENGINE_SPECS[engine]["model_id"]
+    if engine == "Custom / external model ID":
+        if not custom_model_id.strip():
+            raise gr.Error("Enter a custom model ID for the selected engine.")
+        model_id = custom_model_id.strip()
+
+    depth_paths: List[str] = depth_maps or []
+    if depth_source == "external":
+        if mode == "single" and not depth_paths:
+            raise gr.Error("Upload a depth map to use the external depth option.")
+        if mode != "single" and len(depth_paths) != len(images):
+            raise gr.Error("Provide one depth map per image for external depth blending.")
     meshes = []
     depth_preview = None
+    depth_stack: List[np.ndarray] = []
+    color_stack: List[np.ndarray] = []
+    target_size = images[0].size
     for idx, image in enumerate(images):
         if max(image.size) > max_resolution:
             image.thumbnail((max_resolution, max_resolution), Image.Resampling.LANCZOS)
-        depth = estimate_depth(image, model_id)
-        depth_norm = normalize_depth(depth)
-        mesh = build_mesh(image, depth_norm, depth_scale, xy_scale)
-        meshes.append(mesh)
+        image = match_image_size(image, target_size)
+        if depth_source == "external":
+            depth_norm = load_depth_map_image(depth_paths[idx], image.size)
+        else:
+            depth = estimate_depth(image, model_id)
+            depth_norm = normalize_depth(depth)
+        if mode == "multi_merge":
+            depth_stack.append(depth_norm)
+            color_stack.append(np.asarray(image))
+        else:
+            mesh = build_mesh(image, depth_norm, depth_scale, xy_scale)
+            meshes.append(mesh)
         if include_depth_preview and depth_preview is None:
             depth_image = Image.fromarray((depth_norm * 255).astype(np.uint8))
             depth_preview = depth_image.convert("L")
 
-    if mode == "multi":
+    if mode == "multi_merge":
+        depth_merged = np.median(np.stack(depth_stack, axis=0), axis=0)
+        color_merged = np.median(np.stack(color_stack, axis=0), axis=0).astype(np.uint8)
+        merged_image = Image.fromarray(color_merged)
+        mesh = build_mesh(merged_image, depth_merged, depth_scale, xy_scale)
+    elif mode == "multi_orbit":
         angles = parse_view_angles(view_angles, len(meshes))
         transformed_meshes = []
         for mesh, angle in zip(meshes, angles):
@@ -211,7 +269,8 @@ def generate_scene(
     mesh_path = output_dir / "scene.glb"
     mesh.export(mesh_path)
 
-    return str(mesh_path), depth_preview, str(mesh_path)
+    depth_output = gr.update(value=depth_preview, visible=include_depth_preview)
+    return str(mesh_path), depth_output, str(mesh_path)
 
 
 def build_demo() -> gr.Blocks:
@@ -220,20 +279,22 @@ def build_demo() -> gr.Blocks:
             """
             # One Image → Explorable 3D Scene
 
-            This tool estimates depth from a single image and converts it into a 3D mesh that you can orbit and inspect.
+            This tool estimates depth from a single image (or merges multiple images) and converts it into a 3D mesh
+            that you can orbit and inspect. Use high-resolution settings and external depth maps (Apple SHARP, etc.)
+            when you need maximum quality.
             """
         )
         with gr.Row():
             with gr.Column():
                 mode = gr.Radio(
-                    ["single", "multi"],
+                    ["single", "multi_orbit", "multi_merge"],
                     value="single",
                     label="Scene input mode",
-                    info="Single image for quick depth or multi-view to blend angles.",
+                    info="Single image, multi-view orbit, or multi-image merge for detail boost.",
                 )
                 input_image = gr.Image(label="Single input image", type="pil")
                 multi_images = gr.Files(
-                    label="Multi-view images",
+                    label="Multi-view images (orbit or merge)",
                     file_types=["image"],
                     type="filepath",
                 )
@@ -241,14 +302,29 @@ def build_demo() -> gr.Blocks:
                     list(ENGINE_SPECS.keys()),
                     value="Depth Anything V2 Large (high detail)",
                     label="Depth engine",
-                    info="Choose the strongest available depth backbone.",
+                    info="Choose a built-in model or supply a custom model ID.",
+                )
+                custom_model_id = gr.Textbox(
+                    label="Custom model ID (optional)",
+                    placeholder="apple/sharp-depth-v1 or org/model-id",
+                )
+                depth_source = gr.Radio(
+                    ["model", "external"],
+                    value="model",
+                    label="Depth source",
+                    info="Model = built-in/Custom model ID. External = upload depth maps (Apple SHARP, etc.).",
+                )
+                depth_maps = gr.Files(
+                    label="External depth maps (optional, match image order)",
+                    file_types=["image"],
+                    type="filepath",
                 )
                 max_resolution = gr.Slider(
                     256,
-                    2048,
-                    value=1024,
-                    step=32,
-                    label="Max resolution (higher = sharper)",
+                    10240,
+                    value=2048,
+                    step=64,
+                    label="Max resolution (higher = sharper, up to 5x)",
                 )
                 depth_scale = gr.Slider(
                     0.5,
@@ -281,10 +357,11 @@ def build_demo() -> gr.Blocks:
                     info="Disable to save time; meshes still render.",
                 )
                 generate_button = gr.Button("Generate 3D Scene")
-            with gr.Column():
-                model_view = gr.Model3D(label="Explorable scene")
-                depth_preview = gr.Image(label="Depth preview", type="pil")
+            with gr.Column(scale=2):
+                model_view = gr.Model3D(label="Explorable scene", height=720)
                 download_mesh = gr.File(label="Download mesh")
+                with gr.Accordion("Depth preview (optional)", open=False):
+                    depth_preview = gr.Image(label="Depth preview", type="pil", visible=False)
 
         generate_button.click(
             generate_scene,
@@ -293,6 +370,9 @@ def build_demo() -> gr.Blocks:
                 multi_images,
                 mode,
                 engine,
+                custom_model_id,
+                depth_source,
+                depth_maps,
                 max_resolution,
                 depth_scale,
                 xy_scale,
