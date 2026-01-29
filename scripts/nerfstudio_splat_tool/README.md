@@ -14,6 +14,21 @@ If you already activated a virtual environment, you can also run:
 python app.py
 ```
 
+## CUDA install (Windows, this tool)
+
+This tool pins Nerfstudio 1.1.4 and PyTorch 2.1.2. To avoid CUDA/torch mismatches, install the CUDA build **inside** the tool's virtual environment:
+
+```bash
+.\scripts\nerfstudio_splat_tool\.venv\Scripts\activate
+python -m pip uninstall -y torch torchvision torchaudio
+python -m pip install torch==2.1.2+cu118 torchvision==0.16.2+cu118 torchaudio==2.1.2+cu118 --index-url https://download.pytorch.org/whl/cu118
+python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
+```
+
+Notes:
+- You do **not** need the full CUDA toolkit; the PyTorch CUDA wheels bundle the runtime. You only need an up-to-date NVIDIA driver.
+- If you reinstall dependencies, re-run the CUDA install command to ensure the CUDA build stays in place.
+
 ## Recommended capture
 
 - 20–100 images with good overlap and stable lighting.
@@ -39,6 +54,7 @@ The job bundle ZIP includes inputs, processed data, configs, and exported files.
 - **CUDA available but not detected**: Ensure PyTorch is installed with CUDA support (the CPU-only build will always report no CUDA).
 - **Downscale flag error**: The app auto-detects the correct `ns-process-data` downscale flag for your Nerfstudio version. If you still see an error, rerun after updating Nerfstudio.
 - **Dependencies fail to install**: Update your GPU drivers, and ensure Python 3.10+ is installed.
+- **UnicodeEncodeError (emoji / cp1252)**: This happens on legacy Windows terminals when Rich prints emoji. Ensure `PYTHONUTF8=1` and `RICH_NO_EMOJI=1` are set in your environment, or run the tool from a UTF-8-capable terminal (Windows Terminal / VS Code).
 
 ## Notes
 

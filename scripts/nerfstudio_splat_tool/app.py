@@ -82,6 +82,16 @@ def append_setup_instructions(
     ffmpeg_missing: bool,
     nerfstudio_missing: bool,
 ) -> None:
+    cuda_steps = [
+        "1) Activate the tool virtual environment:",
+        "   - .\\scripts\\nerfstudio_splat_tool\\.venv\\Scripts\\activate",
+        "2) Remove the CPU-only PyTorch build:",
+        "   - python -m pip uninstall -y torch torchvision torchaudio",
+        "3) Install the CUDA-enabled build that matches this tool (torch 2.1.2):",
+        "   - python -m pip install torch==2.1.2+cu118 torchvision==0.16.2+cu118 torchaudio==2.1.2+cu118 --index-url https://download.pytorch.org/whl/cu118",
+        "4) Confirm CUDA is detected:",
+        "   - python -c \"import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())\"",
+    ]
     steps: List[str] = []
     if venv_missing:
         steps.extend(
@@ -117,9 +127,11 @@ def append_setup_instructions(
             [
                 "1) Install a CUDA-enabled PyTorch build for your GPU:",
                 "   - https://pytorch.org/get-started/locally/",
-                "2) Relaunch the app and confirm CUDA is detected.",
+                "2) Suggested install for this tool:",
             ]
         )
+        steps.extend(cuda_steps)
+        steps.append("5) Relaunch the app and confirm CUDA is detected.")
     if steps:
         logs.append("Setup steps:")
         logs.extend(steps)
@@ -242,6 +254,9 @@ def check_dependencies() -> Tuple[Dict[str, str], List[str], bool, bool]:
         logs.append(f"Torch check failed: {exc}")
 
     env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
+    env["RICH_NO_EMOJI"] = "1"
     colmap_bin = ensure_colmap()
     env["PATH"] = f"{colmap_bin}{os.pathsep}{env.get('PATH', '')}"
 
