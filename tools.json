@@ -36,6 +36,12 @@
     "command": "python b64pdf2png.py"
   },
   {
+    "id": "one-image-to-3d",
+    "name": "One Image to 3D (Gradio)",
+    "description": "Estimate depth from one image and build an explorable 3D mesh",
+    "command": "python one_image_to_3d/run.py"
+  },
+  {
     "id": "comfy-prompt-builder",
     "name": "Comfy Prompt Builder",
     "description": "Generate ComfyUI prompts using KoboldCpp or local GGUF models",
