@@ -69,7 +69,11 @@ def install_requirements() -> None:
 def ensure_gradio():
     if importlib.util.find_spec("gradio") is None:
         install_requirements()
-    import gradio as gr  # noqa: WPS433 - runtime import is intentional
+    try:
+        import gradio as gr  # noqa: WPS433 - runtime import is intentional
+    except ImportError:
+        install_requirements()
+        import gradio as gr  # noqa: WPS433 - runtime import is intentional
 
     return gr
 
