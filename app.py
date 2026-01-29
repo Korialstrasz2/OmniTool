@@ -64,6 +64,28 @@ def parse_env_lines(env_text: str) -> Dict[str, str]:
     return env
 
 
+def resolve_tool_command(command: str) -> str:
+    """Resolve platform-specific launcher scripts for tools."""
+    if not command:
+        return command
+    tokens = shlex.split(command)
+    if not tokens:
+        return command
+    executable = tokens[0]
+    executable_path = Path(executable)
+    if os.name != 'nt' and executable.lower().endswith('.bat'):
+        candidate = executable_path.with_suffix('.sh')
+        if (SCRIPTS_DIR / candidate).exists():
+            tokens[0] = str(candidate)
+            return shlex.join(tokens)
+    if os.name == 'nt' and executable.lower().endswith('.sh'):
+        candidate = executable_path.with_suffix('.bat')
+        if (SCRIPTS_DIR / candidate).exists():
+            tokens[0] = str(candidate)
+            return shlex.join(tokens)
+    return command
+
+
 def run_checked_command(command: List[str], cwd: Path | None = None) -> Tuple[bool, str]:
     """Run a subprocess command and return (success, output)."""
     try:
@@ -127,7 +149,7 @@ def run_tool(tool_id):
     if not tool:
         flash('Tool not found.', 'error')
         return redirect(url_for('index'))
-    command = tool['command']
+    command = resolve_tool_command(tool['command'])
     try:
         subprocess.Popen(command, shell=True, cwd=str(SCRIPTS_DIR))
         flash(f"Started {tool['name']}", 'success')
