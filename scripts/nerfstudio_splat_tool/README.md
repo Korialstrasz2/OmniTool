@@ -44,7 +44,8 @@ Notes:
    - `ns-export gaussian-splat` and `ns-export pointcloud`
 3. Once complete, navigate the scene in the embedded viewer and download the outputs.
 
-The job bundle ZIP includes inputs, processed data, configs, and exported files.
+The job bundle ZIP includes inputs, processed data, configs, and exported files, plus a `viewer.html`
+file that can be opened locally alongside `scene.ply`.
 
 ## Single-image flow
 
