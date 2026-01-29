@@ -36,6 +36,8 @@ The job bundle ZIP includes inputs, processed data, configs, and exported files.
 - **COLMAP fails**: Ensure the image set has sufficient overlap and texture; try increasing the downscale factor.
 - **COLMAP download fails (404/blocked)**: Download the Windows ZIP from the COLMAP releases page and extract it into `scripts/nerfstudio_splat_tool/third_party/colmap`, then rerun the app.
 - **CUDA missing**: The app falls back to CPU mode automatically but will run slower.
+- **CUDA available but not detected**: Ensure PyTorch is installed with CUDA support (the CPU-only build will always report no CUDA).
+- **Downscale flag error**: The app auto-detects the correct `ns-process-data` downscale flag for your Nerfstudio version. If you still see an error, rerun after updating Nerfstudio.
 - **Dependencies fail to install**: Update your GPU drivers, and ensure Python 3.10+ is installed.
 
 ## Notes

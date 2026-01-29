@@ -34,6 +34,7 @@ DEFAULT_DOWNSCALE = 2
 RUNNER_LOCK = threading.Lock()
 ACTIVE_PROCESS: Optional[subprocess.Popen] = None
 CANCEL_EVENT = threading.Event()
+NS_PROCESS_DATA_DOWNSCALE_FLAG: Optional[str] = None
 
 
 @dataclass
@@ -139,7 +140,7 @@ def check_python_version() -> None:
         raise RuntimeError("Python 3.10+ is required.")
 
 
-def check_dependencies() -> Tuple[Dict[str, str], List[str]]:
+def check_dependencies() -> Tuple[Dict[str, str], List[str], bool]:
     check_python_version()
     ensure_directories()
 
@@ -156,11 +157,22 @@ def check_dependencies() -> Tuple[Dict[str, str], List[str]]:
         logs.append("Installing Python dependencies...")
         install_requirements()
 
+    cuda_available = False
     try:
         import torch
 
-        if not torch.cuda.is_available():
+        cuda_available = torch.cuda.is_available()
+        if not cuda_available:
+            if torch.version.cuda is None:
+                logs.append(
+                    "Torch is installed without CUDA support. "
+                    "Install a CUDA-enabled PyTorch build to use the GPU."
+                )
             logs.append("CUDA not detected. Training will run in CPU mode with smaller defaults.")
+        else:
+            device_count = torch.cuda.device_count()
+            device_name = torch.cuda.get_device_name(0) if device_count else "Unknown GPU"
+            logs.append(f"CUDA detected ({device_count} device(s)): {device_name}.")
     except Exception as exc:  # pragma: no cover - depends on torch install
         logs.append(f"Torch check failed: {exc}")
 
@@ -172,7 +184,32 @@ def check_dependencies() -> Tuple[Dict[str, str], List[str]]:
         logs.append("Nerfstudio CLI not found. Installing nerfstudio...")
         run_subprocess([sys.executable, "-m", "pip", "install", "nerfstudio"], env=env)
 
-    return env, logs
+    return env, logs, cuda_available
+
+
+def detect_downscale_flag(env: Dict[str, str]) -> Optional[str]:
+    global NS_PROCESS_DATA_DOWNSCALE_FLAG
+    if NS_PROCESS_DATA_DOWNSCALE_FLAG is not None:
+        return NS_PROCESS_DATA_DOWNSCALE_FLAG
+    try:
+        result = subprocess.run(
+            ["ns-process-data", "images", "--help"],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        NS_PROCESS_DATA_DOWNSCALE_FLAG = None
+        return None
+    help_text = f"{result.stdout}\n{result.stderr}"
+    if "--downscale-factor" in help_text:
+        NS_PROCESS_DATA_DOWNSCALE_FLAG = "--downscale-factor"
+    elif "--downscale" in help_text:
+        NS_PROCESS_DATA_DOWNSCALE_FLAG = "--downscale"
+    else:
+        NS_PROCESS_DATA_DOWNSCALE_FLAG = None
+    return NS_PROCESS_DATA_DOWNSCALE_FLAG
 
 
 def make_job_paths() -> JobPaths:
@@ -233,18 +270,20 @@ def build_commands(
     job: JobPaths,
     iterations: int,
     downscale: int,
+    downscale_flag: Optional[str],
 ) -> List[List[str]]:
+    process_command = [
+        "ns-process-data",
+        "images",
+        "--data",
+        str(job.input_dir),
+        "--output-dir",
+        str(job.processed_dir),
+    ]
+    if downscale_flag:
+        process_command.extend([downscale_flag, str(downscale)])
     return [
-        [
-            "ns-process-data",
-            "images",
-            "--data",
-            str(job.input_dir),
-            "--output-dir",
-            str(job.processed_dir),
-            "--downscale-factor",
-            str(downscale),
-        ],
+        process_command,
         [
             "ns-train",
             "splatfacto",
@@ -384,10 +423,17 @@ def run_pipeline(
         return
 
     CANCEL_EVENT.clear()
-    env, dep_logs = check_dependencies()
+    env, dep_logs, cuda_available = check_dependencies()
     log_lines: List[str] = []
     for line in dep_logs:
         log_lines.append(line)
+    downscale_flag = detect_downscale_flag(env)
+    if downscale_flag is None:
+        log_lines.append(
+            "Downscale flag not supported by this Nerfstudio version; proceeding without downscale."
+        )
+    elif downscale_flag != "--downscale-factor":
+        log_lines.append(f"Using '{downscale_flag}' for downscale with this Nerfstudio version.")
     yield "\n".join(log_lines), "Preparing job...", viewer_html(None), None, None
 
     job = make_job_paths()
@@ -406,11 +452,15 @@ def run_pipeline(
         env["CUDA_VISIBLE_DEVICES"] = ""
         log_lines.append("CPU mode selected. This will be significantly slower.")
     elif device_mode == "auto":
-        log_lines.append("Auto device mode selected.")
+        if not cuda_available:
+            env["CUDA_VISIBLE_DEVICES"] = ""
+            log_lines.append("Auto device mode selected, but CUDA is unavailable. Using CPU mode.")
+        else:
+            log_lines.append("Auto device mode selected.")
 
     progress(0.05, desc="Processing images")
     try:
-        for command in build_commands(job, iterations, downscale):
+        for command in build_commands(job, iterations, downscale, downscale_flag):
             log_lines.append(f"$ {' '.join(command)}")
             for line in run_command_stream(command, env, log_lines):
                 yield "\n".join(log_lines), "Running pipeline...", viewer_html(None), None, None
