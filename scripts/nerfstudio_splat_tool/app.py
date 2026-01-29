@@ -817,6 +817,14 @@ def zip_job(job: JobPaths) -> None:
 
 def build_offline_viewer_script(scene_filename: str) -> str:
     viewer_script = (VIEWER_DIR / "viewer.js").read_text(encoding="utf-8")
+    viewer_script = viewer_script.replace(
+        'from "three/examples/jsm/',
+        'from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/',
+    )
+    viewer_script = viewer_script.replace(
+        'from "three"',
+        'from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"',
+    )
     original = (
         "function parseSceneUrl() {\n"
         "  const params = new URLSearchParams(window.location.search);\n"
