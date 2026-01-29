@@ -68,22 +68,31 @@ def resolve_tool_command(command: str) -> str:
     """Resolve platform-specific launcher scripts for tools."""
     if not command:
         return command
-    tokens = shlex.split(command)
+    tokens = shlex.split(command, posix=os.name != 'nt')
     if not tokens:
         return command
+
     executable = tokens[0]
     executable_path = Path(executable)
     if os.name != 'nt' and executable.lower().endswith('.bat'):
         candidate = executable_path.with_suffix('.sh')
         if (SCRIPTS_DIR / candidate).exists():
             tokens[0] = str(candidate)
-            return shlex.join(tokens)
     if os.name == 'nt' and executable.lower().endswith('.sh'):
         candidate = executable_path.with_suffix('.bat')
         if (SCRIPTS_DIR / candidate).exists():
             tokens[0] = str(candidate)
-            return shlex.join(tokens)
-    return command
+
+    normalized = os.path.normpath(tokens[0])
+    if not os.path.isabs(normalized):
+        has_separator = any(sep in normalized for sep in (os.sep, '/', '\\'))
+        if has_separator and not normalized.startswith(('.', os.sep)):
+            normalized = f".{os.sep}{normalized}"
+    tokens[0] = normalized
+
+    if os.name == 'nt':
+        return subprocess.list2cmdline(tokens)
+    return shlex.join(tokens)
 
 
 def run_checked_command(command: List[str], cwd: Path | None = None) -> Tuple[bool, str]:
