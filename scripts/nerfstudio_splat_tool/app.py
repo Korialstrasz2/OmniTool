@@ -140,7 +140,7 @@ def check_python_version() -> None:
         raise RuntimeError("Python 3.10+ is required.")
 
 
-def check_dependencies() -> Tuple[Dict[str, str], List[str], bool]:
+def check_dependencies() -> Tuple[Dict[str, str], List[str], bool, bool]:
     check_python_version()
     ensure_directories()
 
@@ -166,7 +166,8 @@ def check_dependencies() -> Tuple[Dict[str, str], List[str], bool]:
             if torch.version.cuda is None:
                 logs.append(
                     "Torch is installed without CUDA support. "
-                    "Install a CUDA-enabled PyTorch build to use the GPU."
+                    "Install a CUDA-enabled PyTorch build to use the GPU "
+                    "(see https://pytorch.org/get-started/locally/)."
                 )
             logs.append("CUDA not detected. Training will run in CPU mode with smaller defaults.")
         else:
@@ -184,7 +185,16 @@ def check_dependencies() -> Tuple[Dict[str, str], List[str], bool]:
         logs.append("Nerfstudio CLI not found. Installing nerfstudio...")
         run_subprocess([sys.executable, "-m", "pip", "install", "nerfstudio"], env=env)
 
-    return env, logs, cuda_available
+    ffmpeg_available = shutil.which("ffmpeg", path=env.get("PATH")) is not None
+    if not ffmpeg_available:
+        logs.append(
+            "Could not find ffmpeg on PATH. Install ffmpeg and ensure it is on PATH "
+            "(Windows: winget install Gyan.FFmpeg or choco install ffmpeg, "
+            "or download from https://ffmpeg.org/download.html)."
+        )
+        logs.append("Debug tip: run `ffmpeg -version` in a new terminal to confirm it's available.")
+
+    return env, logs, cuda_available, ffmpeg_available
 
 
 def detect_downscale_flag(env: Dict[str, str]) -> Optional[str]:
@@ -423,7 +433,7 @@ def run_pipeline(
         return
 
     CANCEL_EVENT.clear()
-    env, dep_logs, cuda_available = check_dependencies()
+    env, dep_logs, cuda_available, ffmpeg_available = check_dependencies()
     log_lines: List[str] = []
     for line in dep_logs:
         log_lines.append(line)
@@ -435,6 +445,10 @@ def run_pipeline(
     elif downscale_flag != "--downscale-factor":
         log_lines.append(f"Using '{downscale_flag}' for downscale with this Nerfstudio version.")
     yield "\n".join(log_lines), "Preparing job...", viewer_html(None), None, None
+    if not ffmpeg_available:
+        log_lines.append("Pipeline stopped: ffmpeg is required for image processing.")
+        yield "\n".join(log_lines), "Missing ffmpeg.", viewer_html(None), None, None
+        return
 
     job = make_job_paths()
     extract_inputs(zip_input, images, job)
