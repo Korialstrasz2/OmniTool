@@ -16,6 +16,10 @@ ENGINE_SPECS = {
         "model_id": "depth-anything/Depth-Anything-V2-Small-hf",
         "description": "Fast previews with solid geometry.",
     },
+    "Depth Anything V2 Giant (ultra detail)": {
+        "model_id": "depth-anything/Depth-Anything-V2-Giant-hf",
+        "description": "Highest-detail Depth Anything backbone for max fidelity meshes.",
+    },
     "Depth Anything V2 Large (high detail)": {
         "model_id": "depth-anything/Depth-Anything-V2-Large-hf",
         "description": "Sharper depth boundaries and improved fine detail.",
