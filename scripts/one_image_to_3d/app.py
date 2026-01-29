@@ -1,4 +1,3 @@
-import os
 import tempfile
 from functools import lru_cache
 from pathlib import Path
@@ -28,22 +27,13 @@ ENGINE_SPECS = {
         "model_id": "Intel/dpt-large",
         "description": "Strong all-around depth with stable surfaces.",
     },
-    "MiDaS DPT Hybrid (detail boost)": {
-        "model_id": "Intel/dpt-hybrid-midas",
-        "description": "Sharper edges with reasonable speed for higher quality meshes.",
-    },
     "ZoeDepth NYU/KITTI (metric)": {
         "model_id": "Intel/zoedepth-nyu-kitti",
         "description": "Metric-aware depth with strong multi-surface consistency.",
     },
-    "Apple SHARP (external depth map)": {
-        "model_id": "",
-        "description": "Use Apple SHARP depth maps exported externally (Windows).",
-        "external_only": True,
-    },
     "Custom / external model ID": {
         "model_id": "",
-        "description": "Use any compatible depth model ID or external depth maps.",
+        "description": "Use any compatible depth model ID (Apple SHARP, custom fine-tunes, etc.).",
     },
 }
 
@@ -67,7 +57,7 @@ def normalize_depth(depth: np.ndarray) -> np.ndarray:
 @lru_cache(maxsize=len(ENGINE_SPECS))
 def load_depth_model(model_id: str) -> Tuple[AutoImageProcessor, AutoModelForDepthEstimation, str]:
     device = pick_device()
-    processor = AutoImageProcessor.from_pretrained(model_id, use_fast=False)
+    processor = AutoImageProcessor.from_pretrained(model_id)
     model = AutoModelForDepthEstimation.from_pretrained(model_id)
     model.to(device)
     model.eval()
@@ -147,11 +137,9 @@ def ensure_model_assets() -> None:
     """Download all configured models at startup so the UI stays responsive."""
     for engine in ENGINE_SPECS.values():
         model_id = engine["model_id"]
-        if engine.get("external_only"):
-            continue
         if not model_id:
             continue
-        processor = AutoImageProcessor.from_pretrained(model_id, use_fast=False)
+        processor = AutoImageProcessor.from_pretrained(model_id)
         model = AutoModelForDepthEstimation.from_pretrained(model_id)
         device = pick_device()
         model.to(device)
@@ -227,16 +215,11 @@ def generate_scene(
             raise gr.Error("Please upload at least two images for multi-view.")
         images = load_images_from_paths(multi_images, max_resolution)
 
-    engine_spec = ENGINE_SPECS[engine]
-    model_id = engine_spec["model_id"]
-    if engine_spec.get("external_only"):
-        depth_source = "external"
+    model_id = ENGINE_SPECS[engine]["model_id"]
     if engine == "Custom / external model ID":
         if not custom_model_id.strip():
-            if depth_source == "model":
-                raise gr.Error("Enter a custom model ID or switch to external depth maps.")
-        else:
-            model_id = custom_model_id.strip()
+            raise gr.Error("Enter a custom model ID for the selected engine.")
+        model_id = custom_model_id.strip()
 
     depth_paths: List[str] = depth_maps or []
     if depth_source == "external":
@@ -244,8 +227,6 @@ def generate_scene(
             raise gr.Error("Upload a depth map to use the external depth option.")
         if mode != "single" and len(depth_paths) != len(images):
             raise gr.Error("Provide one depth map per image for external depth blending.")
-    if depth_source == "model" and not model_id:
-        raise gr.Error("Select a model-based engine or provide a custom model ID.")
     meshes = []
     depth_preview = None
     depth_stack: List[np.ndarray] = []
@@ -300,7 +281,7 @@ def build_demo() -> gr.Blocks:
 
             This tool estimates depth from a single image (or merges multiple images) and converts it into a 3D mesh
             that you can orbit and inspect. Use high-resolution settings and external depth maps (Apple SHARP, etc.)
-            when you need maximum quality. Models load on demand; set `ONE_IMAGE_3D_PRELOAD_MODELS=1` to prefetch.
+            when you need maximum quality.
             """
         )
         with gr.Row():
@@ -405,6 +386,5 @@ def build_demo() -> gr.Blocks:
 
 
 if __name__ == "__main__":
-    if os.environ.get("ONE_IMAGE_3D_PRELOAD_MODELS") == "1":
-        ensure_model_assets()
+    ensure_model_assets()
     build_demo().launch()
