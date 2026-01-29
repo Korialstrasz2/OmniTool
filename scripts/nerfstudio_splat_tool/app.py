@@ -62,6 +62,69 @@ def run_subprocess(command: List[str], env: Optional[Dict[str, str]] = None) -> 
     subprocess.check_call(command, env=env)
 
 
+def run_subprocess_capture(command: List[str], env: Optional[Dict[str, str]] = None) -> List[str]:
+    result = subprocess.run(command, env=env, capture_output=True, text=True, check=False)
+    lines: List[str] = []
+    if result.stdout:
+        lines.extend([line.rstrip() for line in result.stdout.splitlines() if line.strip()])
+    if result.stderr:
+        lines.extend([line.rstrip() for line in result.stderr.splitlines() if line.strip()])
+    if result.returncode != 0:
+        raise subprocess.CalledProcessError(result.returncode, command, output=result.stdout, stderr=result.stderr)
+    return lines
+
+
+def append_setup_instructions(
+    logs: List[str],
+    *,
+    venv_missing: bool,
+    cuda_missing: bool,
+    ffmpeg_missing: bool,
+    nerfstudio_missing: bool,
+) -> None:
+    steps: List[str] = []
+    if venv_missing:
+        steps.extend(
+            [
+                "1) Use the provided start.bat to launch the tool with its virtual environment.",
+                "2) Alternatively, activate the venv manually and rerun the app:",
+                "   - .\\venv\\Scripts\\activate",
+                "   - python scripts\\nerfstudio_splat_tool\\app.py",
+            ]
+        )
+    if nerfstudio_missing:
+        steps.extend(
+            [
+                "1) Install Nerfstudio into this Python environment:",
+                f"   - {sys.executable} -m pip install nerfstudio",
+                "2) Verify it is available:",
+                "   - ns-process-data --help",
+            ]
+        )
+    if ffmpeg_missing:
+        steps.extend(
+            [
+                "1) Install ffmpeg:",
+                "   - Windows (winget): winget install Gyan.FFmpeg",
+                "   - Windows (choco): choco install ffmpeg",
+                "   - Or download from https://ffmpeg.org/download.html",
+                "2) Ensure ffmpeg is on PATH, then confirm:",
+                "   - ffmpeg -version",
+            ]
+        )
+    if cuda_missing:
+        steps.extend(
+            [
+                "1) Install a CUDA-enabled PyTorch build for your GPU:",
+                "   - https://pytorch.org/get-started/locally/",
+                "2) Relaunch the app and confirm CUDA is detected.",
+            ]
+        )
+    if steps:
+        logs.append("Setup steps:")
+        logs.extend(steps)
+
+
 def install_requirements() -> None:
     if not REQUIREMENTS_FILE.exists():
         return
@@ -145,7 +208,8 @@ def check_dependencies() -> Tuple[Dict[str, str], List[str], bool, bool]:
     ensure_directories()
 
     logs: List[str] = []
-    if not in_virtualenv():
+    venv_missing = not in_virtualenv()
+    if venv_missing:
         logs.append(
             "Warning: Running outside a virtual environment. "
             "It is recommended to use start.bat or activate the tool's venv."
@@ -181,8 +245,10 @@ def check_dependencies() -> Tuple[Dict[str, str], List[str], bool, bool]:
     colmap_bin = ensure_colmap()
     env["PATH"] = f"{colmap_bin}{os.pathsep}{env.get('PATH', '')}"
 
-    if not shutil.which("ns-process-data", path=env.get("PATH")):
+    nerfstudio_missing = not shutil.which("ns-process-data", path=env.get("PATH"))
+    if nerfstudio_missing:
         logs.append("Nerfstudio CLI not found. Installing nerfstudio...")
+        logs.append(f"$ {sys.executable} -m pip install nerfstudio")
         run_subprocess([sys.executable, "-m", "pip", "install", "nerfstudio"], env=env)
 
     ffmpeg_available = shutil.which("ffmpeg", path=env.get("PATH")) is not None
@@ -193,6 +259,14 @@ def check_dependencies() -> Tuple[Dict[str, str], List[str], bool, bool]:
             "or download from https://ffmpeg.org/download.html)."
         )
         logs.append("Debug tip: run `ffmpeg -version` in a new terminal to confirm it's available.")
+
+    append_setup_instructions(
+        logs,
+        venv_missing=venv_missing,
+        cuda_missing=not cuda_available,
+        ffmpeg_missing=not ffmpeg_available,
+        nerfstudio_missing=nerfstudio_missing,
+    )
 
     return env, logs, cuda_available, ffmpeg_available
 
@@ -519,6 +593,54 @@ def run_pipeline(
     )
 
 
+def install_python_dependencies() -> str:
+    logs: List[str] = []
+    logs.append("Installing Python dependencies into the current environment...")
+    logs.append(f"$ {sys.executable} -m pip install -r {REQUIREMENTS_FILE}")
+    try:
+        logs.extend(run_subprocess_capture([sys.executable, "-m", "pip", "install", "-r", str(REQUIREMENTS_FILE)]))
+        logs.append("Python dependencies installed.")
+    except subprocess.CalledProcessError as exc:
+        logs.append(f"Install failed: {exc}")
+    return "\n".join(logs)
+
+
+def install_nerfstudio_cli() -> str:
+    logs: List[str] = []
+    logs.append("Installing Nerfstudio CLI into the current environment...")
+    logs.append(f"$ {sys.executable} -m pip install nerfstudio")
+    try:
+        logs.extend(run_subprocess_capture([sys.executable, "-m", "pip", "install", "nerfstudio"]))
+        logs.append("Nerfstudio CLI installed.")
+    except subprocess.CalledProcessError as exc:
+        logs.append(f"Install failed: {exc}")
+    return "\n".join(logs)
+
+
+def show_setup_steps() -> str:
+    logs: List[str] = []
+    env = os.environ.copy()
+    nerfstudio_missing = not shutil.which("ns-process-data", path=env.get("PATH"))
+    ffmpeg_missing = not shutil.which("ffmpeg", path=env.get("PATH"))
+    cuda_missing = True
+    try:
+        import torch
+
+        cuda_missing = not torch.cuda.is_available()
+    except Exception:
+        cuda_missing = True
+    append_setup_instructions(
+        logs,
+        venv_missing=not in_virtualenv(),
+        cuda_missing=cuda_missing,
+        ffmpeg_missing=ffmpeg_missing,
+        nerfstudio_missing=nerfstudio_missing,
+    )
+    if not logs:
+        logs.append("All detected dependencies look good.")
+    return "\n".join(logs)
+
+
 def cancel_pipeline() -> str:
     CANCEL_EVENT.set()
     terminate_active_process()
@@ -593,6 +715,10 @@ def build_ui() -> gr.Blocks:
             viewer = gr.HTML(viewer_html(None))
             logs = gr.Textbox(label="Logs", lines=12, value="", interactive=False)
             with gr.Row():
+                install_deps_btn = gr.Button("Install Python deps (current env)")
+                install_ns_btn = gr.Button("Install Nerfstudio CLI")
+                show_steps_btn = gr.Button("Show setup steps")
+            with gr.Row():
                 download_scene = gr.File(label="Download scene file")
                 download_bundle = gr.File(label="Download job bundle")
 
@@ -602,6 +728,9 @@ def build_ui() -> gr.Blocks:
                 outputs=[logs, status, viewer, download_scene, download_bundle],
             )
             cancel_btn.click(cancel_pipeline, outputs=status)
+            install_deps_btn.click(install_python_dependencies, outputs=logs)
+            install_ns_btn.click(install_nerfstudio_cli, outputs=logs)
+            show_steps_btn.click(show_setup_steps, outputs=logs)
 
         with gr.Tab("Load / Explore Existing Scene"):
             existing_jobs = gr.Dropdown(label="Existing output jobs", choices=list_output_jobs())
