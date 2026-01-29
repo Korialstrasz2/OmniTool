@@ -1,6 +1,6 @@
 # Nerfstudio Splatfacto Tool (Windows)
 
-This standalone Gradio app builds navigable 3D scenes from multi-image captures using Nerfstudio Splatfacto and COLMAP.
+This standalone Gradio app builds navigable 3D scenes from multi-image captures using Nerfstudio Splatfacto and COLMAP. It also supports single-image reconstruction using depth estimation for one-shot captures.
 
 ## Quick start (Windows)
 
@@ -46,11 +46,21 @@ Notes:
 
 The job bundle ZIP includes inputs, processed data, configs, and exported files.
 
+## Single-image flow
+
+1. Open the **Single Image (Depth)** tab or upload a single image in the multi-image tab.
+2. Pick the depth model (Depth Anything V2 or Apple SHARP on macOS) and quality setting.
+3. Click **Run Single-Image Pipeline** (or run the multi-image pipeline with a single input).
+4. The app estimates depth, builds a colored point cloud, and exports `scene.ply`.
+
 ## Troubleshooting
 
 - **COLMAP fails**: Ensure the image set has sufficient overlap and texture; try increasing the downscale factor.
 - **COLMAP `--SiftExtraction.use_gpu` option error**: The tool now auto-drops this flag when the bundled COLMAP build does not support it. If the error persists, delete any custom COLMAP installations from your PATH and rerun so the bundled version is used.
 - **COLMAP `Failed to read faiss index` / vocab tree error**: Newer COLMAP builds require a FAISS-based vocab tree, but Nerfstudio bundles a legacy FLANN index. The tool auto-retries feature matching with the exhaustive matcher. If you still see the error, update COLMAP or regenerate the vocab tree with COLMAP's `vocab_tree_upgrader`.
+- **Single-image mode**: If only one image is provided, the app automatically switches to the depth-based pipeline to avoid COLMAP errors.
+- **Depth model download fails/offline**: Ensure the Depth Anything V2 model is cached locally (Hugging Face cache) or install from a local checkpoint. You can also pre-download with `python -m huggingface_hub.snapshot_download --repo-id depth-anything/Depth-Anything-V2-Large-hf`.
+- **Apple SHARP**: Requires macOS + CoreML. On Windows, use Depth Anything V2 instead.
 - **COLMAP download fails (404/blocked)**: Download the Windows ZIP from the COLMAP releases page and extract it into `scripts/nerfstudio_splat_tool/third_party/colmap`, then rerun the app.
 - **CUDA missing**: The app falls back to CPU mode automatically but will run slower.
 - **CUDA available but not detected**: Ensure PyTorch is installed with CUDA support (the CPU-only build will always report no CUDA).

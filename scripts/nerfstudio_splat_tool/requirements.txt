@@ -7,3 +7,6 @@ torchaudio==2.1.2
 numpy<2
 pillow
 opencv-python
+transformers
+accelerate
+timm
