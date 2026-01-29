@@ -682,6 +682,7 @@ def run_single_image_pipeline(
         return
 
     progress(0.85, desc="Packaging output")
+    write_offline_viewer(job.export_dir, output_path)
     zip_job(job)
     log_lines.append("Single-image pipeline completed successfully.")
     yield (
@@ -812,6 +813,66 @@ def zip_job(job: JobPaths) -> None:
             if path == job.bundle_zip:
                 continue
             zipf.write(path, path.relative_to(job.job_dir))
+
+
+def build_offline_viewer_script(scene_filename: str) -> str:
+    viewer_script = (VIEWER_DIR / "viewer.js").read_text(encoding="utf-8")
+    viewer_script = viewer_script.replace(
+        'from "three/examples/jsm/',
+        'from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/',
+    )
+    viewer_script = viewer_script.replace(
+        'from "three"',
+        'from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"',
+    )
+    original = (
+        "function parseSceneUrl() {\n"
+        "  const params = new URLSearchParams(window.location.search);\n"
+        "  return params.get(\"scene\");\n"
+        "}\n"
+    )
+    replacement = (
+        "function parseSceneUrl() {\n"
+        "  const params = new URLSearchParams(window.location.search);\n"
+        f"  return params.get(\"scene\") || \"{scene_filename}\";\n"
+        "}\n"
+    )
+    if original in viewer_script:
+        viewer_script = viewer_script.replace(original, replacement)
+    else:
+        viewer_script = f"{replacement}\n{viewer_script}"
+    return viewer_script
+
+
+def write_offline_viewer(export_dir: Path, scene_path: Path) -> Path:
+    style = (VIEWER_DIR / "style.css").read_text(encoding="utf-8")
+    script = build_offline_viewer_script(scene_path.name)
+    viewer_html_path = export_dir / "viewer.html"
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Scene Viewer</title>
+  <style>
+{style}
+  </style>
+</head>
+<body>
+  <div id="overlay">
+    <div class="title">Scene Viewer</div>
+    <div id="status">Loading...</div>
+    <div class="hint">WASD + mouse to move. Scroll to zoom.</div>
+  </div>
+  <canvas id="viewport"></canvas>
+  <script type="module">
+{script}
+  </script>
+</body>
+</html>
+"""
+    viewer_html_path.write_text(html, encoding="utf-8")
+    return viewer_html_path
 
 
 def resolve_download_scene(export_dir: Path) -> Optional[Path]:
@@ -993,13 +1054,16 @@ def run_pipeline(
         return
 
     progress(0.9, desc="Packaging output")
-    zip_job(job)
     scene_file = resolve_download_scene(job.export_dir)
     viewer_scene = resolve_viewer_scene(job.export_dir)
     if scene_file is None:
         log_lines.append("No exported scene file found.")
         yield "\n".join(log_lines), "Export finished, but no scene found.", viewer_html(None), None, None
         return
+
+    if viewer_scene is not None:
+        write_offline_viewer(job.export_dir, viewer_scene)
+    zip_job(job)
 
     log_lines.append("Pipeline completed successfully.")
     yield (
