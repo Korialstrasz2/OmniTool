@@ -816,7 +816,12 @@ def zip_job(job: JobPaths) -> None:
 
 
 def build_offline_viewer_script(scene_filename: str) -> str:
-    return f"""const canvas = document.getElementById("viewport");
+    return f"""import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
+import {{ OrbitControls }} from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js";
+import {{ FirstPersonControls }} from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/FirstPersonControls.js";
+import {{ PLYLoader }} from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/PLYLoader.js";
+
+const canvas = document.getElementById("viewport");
 const statusEl = document.getElementById("status");
 
 const scene = new THREE.Scene();
@@ -836,10 +841,10 @@ const directional = new THREE.DirectionalLight(0xffffff, 0.6);
 directional.position.set(2, 4, 3);
 scene.add(directional);
 
-const orbit = new THREE.OrbitControls(camera, renderer.domElement);
+const orbit = new OrbitControls(camera, renderer.domElement);
 orbit.enableDamping = true;
 
-const fps = new THREE.FirstPersonControls(camera, renderer.domElement);
+const fps = new FirstPersonControls(camera, renderer.domElement);
 fps.movementSpeed = 2.5;
 fps.lookSpeed = 0.08;
 fps.enabled = true;
@@ -885,7 +890,7 @@ function loadScene(url) {{
     statusEl.textContent = "Gaussian splat file detected. Viewer currently expects .ply output.";
   }}
 
-  const loader = new THREE.PLYLoader();
+  const loader = new PLYLoader();
   loader.load(
     url,
     (geometry) => {{
@@ -937,14 +942,10 @@ def write_offline_viewer(export_dir: Path, scene_path: Path) -> Path:
   <div id="overlay">
     <div class="title">Scene Viewer</div>
     <div id="status">Loading...</div>
-    <div class="hint">WASD + mouse to move. Scroll to zoom.</div>
+  <div class="hint">WASD + mouse to move. Scroll to zoom.</div>
   </div>
   <canvas id="viewport"></canvas>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/FirstPersonControls.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/loaders/PLYLoader.js"></script>
-  <script>
+  <script type="module">
 {script}
   </script>
 </body>
