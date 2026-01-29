@@ -69,11 +69,21 @@ def install_requirements() -> None:
 def ensure_gradio():
     if importlib.util.find_spec("gradio") is None:
         install_requirements()
-    try:
-        import gradio as gr  # noqa: WPS433 - runtime import is intentional
-    except ImportError:
-        install_requirements()
-        import gradio as gr  # noqa: WPS433 - runtime import is intentional
+    import gradio as gr  # noqa: WPS433 - runtime import is intentional
+
+    if importlib.util.find_spec("gradio_client") is None:
+        return gr
+    from gradio_client import utils as client_utils  # noqa: WPS433 - runtime import is intentional
+
+    if hasattr(client_utils, "_json_schema_to_python_type"):
+        original_json_schema_to_python_type = client_utils._json_schema_to_python_type
+
+        def _json_schema_to_python_type(schema, defs=None):
+            if isinstance(schema, bool):
+                return "Any"
+            return original_json_schema_to_python_type(schema, defs)
+
+        client_utils._json_schema_to_python_type = _json_schema_to_python_type
 
     return gr
 
