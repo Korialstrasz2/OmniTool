@@ -467,6 +467,24 @@ def detect_downscale_flag(env: Dict[str, str]) -> Optional[str]:
     return NS_PROCESS_DATA_DOWNSCALE_FLAG
 
 
+def detect_matching_method_flag(env: Dict[str, str]) -> Optional[str]:
+    try:
+        result = subprocess.run(
+            ["ns-process-data", "images", "--help"],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return None
+    help_text = f"{result.stdout}\n{result.stderr}"
+    for flag in ("--matching-method", "--matching_method", "--matching"):
+        if flag in help_text:
+            return flag
+    return None
+
+
 def make_job_paths() -> JobPaths:
     job_id = time.strftime("%Y%m%d_%H%M%S") + f"_{uuid4().hex[:6]}"
     job_dir = OUTPUTS_DIR / job_id
@@ -488,6 +506,21 @@ def make_job_paths() -> JobPaths:
         bundle_zip=bundle_zip,
         preview_image=preview_image,
     )
+
+
+def is_vocab_tree_faiss_error(log_lines: List[str]) -> bool:
+    haystack = "\n".join(log_lines[-200:])
+    return (
+        "Failed to read faiss index" in haystack
+        or "flann-based index" in haystack
+        or "vocab_tree_upgrader" in haystack
+    )
+
+
+def reset_processed_dir(processed_dir: Path) -> None:
+    if processed_dir.exists():
+        shutil.rmtree(processed_dir)
+    processed_dir.mkdir(parents=True, exist_ok=True)
 
 
 def extract_inputs(zip_file: Optional[str], images: List[str], job: JobPaths) -> None:
@@ -526,6 +559,8 @@ def build_commands(
     iterations: int,
     downscale: int,
     downscale_flag: Optional[str],
+    matching_flag: Optional[str] = None,
+    matching_method: Optional[str] = None,
 ) -> List[List[str]]:
     process_command = [
         "ns-process-data",
@@ -537,6 +572,8 @@ def build_commands(
     ]
     if downscale_flag:
         process_command.extend([downscale_flag, str(downscale)])
+    if matching_flag and matching_method:
+        process_command.extend([matching_flag, matching_method])
     return [
         process_command,
         [
@@ -689,6 +726,7 @@ def run_pipeline(
         )
     elif downscale_flag != "--downscale-factor":
         log_lines.append(f"Using '{downscale_flag}' for downscale with this Nerfstudio version.")
+    matching_flag = detect_matching_method_flag(env)
     yield "\n".join(log_lines), "Preparing job...", viewer_html(None), None, None
     if not ffmpeg_available:
         log_lines.append("Pipeline stopped: ffmpeg is required for image processing.")
@@ -719,12 +757,55 @@ def run_pipeline(
 
     progress(0.05, desc="Processing images")
     try:
-        for command in build_commands(job, iterations, downscale, downscale_flag):
-            log_lines.append(f"$ {' '.join(command)}")
-            for line in run_command_stream(command, env, log_lines):
-                yield "\n".join(log_lines), "Running pipeline...", viewer_html(None), None, None
-                if CANCEL_EVENT.is_set():
-                    raise RuntimeError("Cancelled")
+        process_command, train_command = build_commands(
+            job,
+            iterations,
+            downscale,
+            downscale_flag,
+        )
+        log_lines.append(f"$ {' '.join(process_command)}")
+        for line in run_command_stream(process_command, env, log_lines):
+            yield "\n".join(log_lines), "Running pipeline...", viewer_html(None), None, None
+            if CANCEL_EVENT.is_set():
+                raise RuntimeError("Cancelled")
+    except Exception as exc:
+        terminate_active_process()
+        if matching_flag and is_vocab_tree_faiss_error(log_lines):
+            log_lines.append(
+                "Detected a COLMAP vocab tree incompatibility (faiss vs flann). "
+                "Retrying feature matching with the exhaustive matcher."
+            )
+            reset_processed_dir(job.processed_dir)
+            process_command, train_command = build_commands(
+                job,
+                iterations,
+                downscale,
+                downscale_flag,
+                matching_flag=matching_flag,
+                matching_method="exhaustive",
+            )
+            log_lines.append(f"$ {' '.join(process_command)}")
+            try:
+                for line in run_command_stream(process_command, env, log_lines):
+                    yield "\n".join(log_lines), "Running pipeline...", viewer_html(None), None, None
+                    if CANCEL_EVENT.is_set():
+                        raise RuntimeError("Cancelled")
+            except Exception as retry_exc:
+                terminate_active_process()
+                log_lines.append(f"Pipeline failed: {retry_exc}")
+                yield "\n".join(log_lines), "Pipeline failed.", viewer_html(None), None, None
+                return
+        else:
+            log_lines.append(f"Pipeline failed: {exc}")
+            yield "\n".join(log_lines), "Pipeline failed.", viewer_html(None), None, None
+            return
+
+    try:
+        log_lines.append(f"$ {' '.join(train_command)}")
+        for line in run_command_stream(train_command, env, log_lines):
+            yield "\n".join(log_lines), "Running pipeline...", viewer_html(None), None, None
+            if CANCEL_EVENT.is_set():
+                raise RuntimeError("Cancelled")
     except Exception as exc:
         terminate_active_process()
         log_lines.append(f"Pipeline failed: {exc}")

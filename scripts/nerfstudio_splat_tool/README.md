@@ -50,6 +50,7 @@ The job bundle ZIP includes inputs, processed data, configs, and exported files.
 
 - **COLMAP fails**: Ensure the image set has sufficient overlap and texture; try increasing the downscale factor.
 - **COLMAP `--SiftExtraction.use_gpu` option error**: The tool now auto-drops this flag when the bundled COLMAP build does not support it. If the error persists, delete any custom COLMAP installations from your PATH and rerun so the bundled version is used.
+- **COLMAP `Failed to read faiss index` / vocab tree error**: Newer COLMAP builds require a FAISS-based vocab tree, but Nerfstudio bundles a legacy FLANN index. The tool auto-retries feature matching with the exhaustive matcher. If you still see the error, update COLMAP or regenerate the vocab tree with COLMAP's `vocab_tree_upgrader`.
 - **COLMAP download fails (404/blocked)**: Download the Windows ZIP from the COLMAP releases page and extract it into `scripts/nerfstudio_splat_tool/third_party/colmap`, then rerun the app.
 - **CUDA missing**: The app falls back to CPU mode automatically but will run slower.
 - **CUDA available but not detected**: Ensure PyTorch is installed with CUDA support (the CPU-only build will always report no CUDA).
