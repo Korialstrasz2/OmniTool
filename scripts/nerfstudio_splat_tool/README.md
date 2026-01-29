@@ -45,7 +45,8 @@ Notes:
 3. Once complete, navigate the scene in the embedded viewer and download the outputs.
 
 The job bundle ZIP includes inputs, processed data, configs, and exported files, plus a `viewer.html`
-file that can be opened locally alongside `scene.ply`.
+file that can be opened locally alongside `scene.ply` (it loads Three.js from a CDN, so an internet
+connection is required for visualization).
 
 ## Single-image flow
 
