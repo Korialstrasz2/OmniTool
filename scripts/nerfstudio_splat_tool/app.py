@@ -220,16 +220,27 @@ def resolve_colmap_executable(colmap_bin: Path) -> Path:
     raise FileNotFoundError(f"COLMAP executable not found in {colmap_bin}.")
 
 
-def colmap_supports_sift_gpu(colmap_exe: Path, env: Dict[str, str]) -> bool:
-    result = subprocess.run(
+def colmap_supports_sift_gpu(colmap_exe: Path, env: Dict[str, str]) -> Tuple[bool, bool]:
+    extraction_result = subprocess.run(
         [str(colmap_exe), "feature_extractor", "--help"],
         env=env,
         capture_output=True,
         text=True,
         check=False,
     )
-    help_text = f"{result.stdout}\n{result.stderr}"
-    return "--SiftExtraction.use_gpu" in help_text
+    extraction_help = f"{extraction_result.stdout}\n{extraction_result.stderr}"
+    matching_result = subprocess.run(
+        [str(colmap_exe), "vocab_tree_matcher", "--help"],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    matching_help = f"{matching_result.stdout}\n{matching_result.stderr}"
+    return (
+        "--SiftExtraction.use_gpu" in extraction_help,
+        "--SiftMatching.use_gpu" in matching_help,
+    )
 
 
 def write_colmap_shim(colmap_exe: Path) -> Path:
@@ -240,11 +251,34 @@ def write_colmap_shim(colmap_exe: Path) -> Path:
             "@echo off\n"
             "setlocal enabledelayedexpansion\n"
             f"set \"COLMAP_EXE={colmap_exe}\"\n"
+            "set \"DROP_SIFT_EXTRACTION_GPU=%COLMAP_DROP_SIFT_EXTRACTION_GPU%\"\n"
+            "set \"DROP_SIFT_MATCHING_GPU=%COLMAP_DROP_SIFT_MATCHING_GPU%\"\n"
             "set \"args=\"\n"
             ":loop\n"
             "if \"%~1\"==\"\" goto done\n"
-            "if /I \"%~1\"==\"--SiftExtraction.use_gpu\" (\n"
+            "if /I \"%~1\"==\"--SiftExtraction.use_gpu\" if /I \"%DROP_SIFT_EXTRACTION_GPU%\"==\"1\" (\n"
             "  shift\n"
+            "  shift\n"
+            "  goto loop\n"
+            ")\n"
+            "if /I \"%~1\"==\"--SiftExtraction.use_gpu=0\" if /I \"%DROP_SIFT_EXTRACTION_GPU%\"==\"1\" (\n"
+            "  shift\n"
+            "  goto loop\n"
+            ")\n"
+            "if /I \"%~1\"==\"--SiftExtraction.use_gpu=1\" if /I \"%DROP_SIFT_EXTRACTION_GPU%\"==\"1\" (\n"
+            "  shift\n"
+            "  goto loop\n"
+            ")\n"
+            "if /I \"%~1\"==\"--SiftMatching.use_gpu\" if /I \"%DROP_SIFT_MATCHING_GPU%\"==\"1\" (\n"
+            "  shift\n"
+            "  shift\n"
+            "  goto loop\n"
+            ")\n"
+            "if /I \"%~1\"==\"--SiftMatching.use_gpu=0\" if /I \"%DROP_SIFT_MATCHING_GPU%\"==\"1\" (\n"
+            "  shift\n"
+            "  goto loop\n"
+            ")\n"
+            "if /I \"%~1\"==\"--SiftMatching.use_gpu=1\" if /I \"%DROP_SIFT_MATCHING_GPU%\"==\"1\" (\n"
             "  shift\n"
             "  goto loop\n"
             ")\n"
@@ -270,9 +304,28 @@ def write_colmap_shim(colmap_exe: Path) -> Path:
             "  fi\n"
             "  case \"$arg\" in\n"
             "    --SiftExtraction.use_gpu)\n"
-            "      skip_next=1\n"
+            "      if [ \"${COLMAP_DROP_SIFT_EXTRACTION_GPU:-}\" = \"1\" ]; then\n"
+            "        skip_next=1\n"
+            "      else\n"
+            "        args+=(\"$arg\")\n"
+            "      fi\n"
             "      ;;\n"
             "    --SiftExtraction.use_gpu=*)\n"
+            "      if [ \"${COLMAP_DROP_SIFT_EXTRACTION_GPU:-}\" != \"1\" ]; then\n"
+            "        args+=(\"$arg\")\n"
+            "      fi\n"
+            "      ;;\n"
+            "    --SiftMatching.use_gpu)\n"
+            "      if [ \"${COLMAP_DROP_SIFT_MATCHING_GPU:-}\" = \"1\" ]; then\n"
+            "        skip_next=1\n"
+            "      else\n"
+            "        args+=(\"$arg\")\n"
+            "      fi\n"
+            "      ;;\n"
+            "    --SiftMatching.use_gpu=*)\n"
+            "      if [ \"${COLMAP_DROP_SIFT_MATCHING_GPU:-}\" != \"1\" ]; then\n"
+            "        args+=(\"$arg\")\n"
+            "      fi\n"
             "      ;;\n"
             "    *)\n"
             "      args+=(\"$arg\")\n"
@@ -292,14 +345,23 @@ def ensure_colmap_gpu_flag_compatibility(
     logs: List[str],
 ) -> Dict[str, str]:
     colmap_exe = resolve_colmap_executable(colmap_bin)
-    if colmap_supports_sift_gpu(colmap_exe, env):
+    supports_extraction, supports_matching = colmap_supports_sift_gpu(colmap_exe, env)
+    if supports_extraction and supports_matching:
         return env
     shim_dir = write_colmap_shim(colmap_exe)
     env["PATH"] = f"{shim_dir}{os.pathsep}{env.get('PATH', '')}"
-    logs.append(
-        "COLMAP build does not support --SiftExtraction.use_gpu; "
-        "using a compatibility shim to drop the flag."
-    )
+    if not supports_extraction:
+        env["COLMAP_DROP_SIFT_EXTRACTION_GPU"] = "1"
+        logs.append(
+            "COLMAP build does not support --SiftExtraction.use_gpu; "
+            "using a compatibility shim to drop the flag."
+        )
+    if not supports_matching:
+        env["COLMAP_DROP_SIFT_MATCHING_GPU"] = "1"
+        logs.append(
+            "COLMAP build does not support --SiftMatching.use_gpu; "
+            "using a compatibility shim to drop the flag."
+        )
     return env
 
 
