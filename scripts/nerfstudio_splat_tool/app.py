@@ -31,6 +31,8 @@ COLMAP_ZIP_URLS = (
 
 DEFAULT_ITERATIONS = 2000
 DEFAULT_DOWNSCALE = 2
+DEFAULT_SINGLE_IMAGE_METHOD = "depth-anything-v2"
+DEFAULT_SINGLE_IMAGE_QUALITY = "high"
 
 RUNNER_LOCK = threading.Lock()
 ACTIVE_PROCESS: Optional[subprocess.Popen] = None
@@ -548,6 +550,149 @@ def write_preview(job: JobPaths) -> None:
         return
 
 
+def list_input_images(input_dir: Path) -> List[Path]:
+    return sorted(
+        [
+            path
+            for path in input_dir.glob("*")
+            if path.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}
+        ]
+    )
+
+
+def load_depth_anything_pipeline(model_id: str, logs: List[str]):
+    try:
+        from transformers import pipeline  # noqa: WPS433 - optional runtime import
+    except ImportError as exc:
+        raise RuntimeError(
+            "Single-image depth estimation requires the transformers package. "
+            "Install it with: python -m pip install transformers accelerate"
+        ) from exc
+    logs.append(f"Loading depth model: {model_id}")
+    return pipeline("depth-estimation", model=model_id)
+
+
+def estimate_depth(
+    image_path: Path,
+    method: str,
+    quality: str,
+    logs: List[str],
+):
+    from PIL import Image
+
+    image = Image.open(image_path).convert("RGB")
+    if method == "depth-anything-v2":
+        model_map = {
+            "low": "depth-anything/Depth-Anything-V2-Small-hf",
+            "medium": "depth-anything/Depth-Anything-V2-Base-hf",
+            "high": "depth-anything/Depth-Anything-V2-Large-hf",
+        }
+        model_id = model_map.get(quality, model_map["high"])
+        depth_pipe = load_depth_anything_pipeline(model_id, logs)
+        prediction = depth_pipe(image)
+        depth = prediction["depth"]
+        return image, depth
+    if method == "apple-sharp":
+        raise RuntimeError(
+            "Apple SHARP requires macOS/CoreML. "
+            "Select Depth Anything V2 on Windows or provide a compatible local model."
+        )
+    raise RuntimeError(f"Unknown single-image method: {method}")
+
+
+def depth_to_pointcloud(
+    image,
+    depth,
+    quality: str,
+    output_path: Path,
+    logs: List[str],
+) -> None:
+    import numpy as np
+
+    depth_array = np.array(depth, dtype=np.float32)
+    depth_min = float(depth_array.min())
+    depth_max = float(depth_array.max())
+    if depth_max - depth_min < 1e-6:
+        raise RuntimeError("Depth map has near-constant values; cannot reconstruct geometry.")
+    depth_norm = (depth_array - depth_min) / (depth_max - depth_min)
+    scale_map = {"low": 1.0, "medium": 1.5, "high": 2.0}
+    depth_scaled = depth_norm * scale_map.get(quality, 2.0)
+
+    image_array = np.array(image, dtype=np.uint8)
+    height, width = depth_scaled.shape
+    fx = fy = max(width, height) * 1.2
+    cx = width / 2.0
+    cy = height / 2.0
+    sample_map = {"low": 4, "medium": 2, "high": 1}
+    stride = sample_map.get(quality, 1)
+
+    ys, xs = np.mgrid[0:height:stride, 0:width:stride]
+    zs = depth_scaled[0:height:stride, 0:width:stride]
+    colors = image_array[0:height:stride, 0:width:stride]
+
+    xs = xs.reshape(-1).astype(np.float32)
+    ys = ys.reshape(-1).astype(np.float32)
+    zs = zs.reshape(-1).astype(np.float32)
+    colors = colors.reshape(-1, 3)
+
+    xs = (xs - cx) / fx * zs
+    ys = (ys - cy) / fy * zs
+
+    vertices = np.column_stack((xs, -ys, zs, colors)).astype(np.float32)
+
+    logs.append(f"Writing point cloud with {len(vertices)} points.")
+    with open(output_path, "w", encoding="utf-8") as handle:
+        handle.write("ply\n")
+        handle.write("format ascii 1.0\n")
+        handle.write(f"element vertex {len(vertices)}\n")
+        handle.write("property float x\n")
+        handle.write("property float y\n")
+        handle.write("property float z\n")
+        handle.write("property uchar red\n")
+        handle.write("property uchar green\n")
+        handle.write("property uchar blue\n")
+        handle.write("end_header\n")
+        for x, y, z, r, g, b in vertices:
+            handle.write(f"{x:.6f} {y:.6f} {z:.6f} {int(r)} {int(g)} {int(b)}\n")
+
+
+def run_single_image_pipeline(
+    job: JobPaths,
+    image_path: Path,
+    method: str,
+    quality: str,
+    log_lines: List[str],
+    progress: gr.Progress,
+):
+    progress(0.2, desc="Estimating depth")
+    try:
+        image, depth = estimate_depth(image_path, method, quality, log_lines)
+    except Exception as exc:
+        log_lines.append(f"Single-image pipeline failed: {exc}")
+        yield "\n".join(log_lines), "Single-image pipeline failed.", viewer_html(None), None, None
+        return
+
+    progress(0.6, desc="Building point cloud")
+    output_path = job.export_dir / "scene.ply"
+    try:
+        depth_to_pointcloud(image, depth, quality, output_path, log_lines)
+    except Exception as exc:
+        log_lines.append(f"Single-image pipeline failed: {exc}")
+        yield "\n".join(log_lines), "Single-image pipeline failed.", viewer_html(None), None, None
+        return
+
+    progress(0.85, desc="Packaging output")
+    zip_job(job)
+    log_lines.append("Single-image pipeline completed successfully.")
+    yield (
+        "\n".join(log_lines),
+        f"Completed job {job.job_id} (single image).",
+        viewer_html(output_path),
+        str(output_path),
+        str(job.bundle_zip),
+    )
+
+
 def find_config_file(train_dir: Path) -> Path:
     for config in train_dir.rglob("config.yml"):
         return config
@@ -707,6 +852,8 @@ def run_pipeline(
     iterations: int,
     downscale: int,
     device_mode: str,
+    single_image_method: str,
+    single_image_quality: str,
     progress: gr.Progress = gr.Progress(),
 ):
     images = images or []
@@ -736,6 +883,25 @@ def run_pipeline(
     job = make_job_paths()
     extract_inputs(zip_input, images, job)
     write_preview(job)
+    input_images = list_input_images(job.input_dir)
+    if len(input_images) == 1:
+        log_lines.append(
+            "Single image detected. Switching to the single-image depth pipeline "
+            f"({single_image_method}, {single_image_quality} quality)."
+        )
+        yield from run_single_image_pipeline(
+            job,
+            input_images[0],
+            single_image_method,
+            single_image_quality,
+            log_lines,
+            progress,
+        )
+        return
+    if len(input_images) == 0:
+        log_lines.append("No images found after extraction.")
+        yield "\n".join(log_lines), "No images found.", viewer_html(None), None, None
+        return
 
     settings = {
         "iterations": iterations,
@@ -926,6 +1092,45 @@ def load_uploaded_scene(file: Optional[str]) -> Tuple[str, str]:
     return viewer_html(dest), f"Loaded {dest.name}."
 
 
+def run_single_image_only(
+    image: Optional[str],
+    method: str,
+    quality: str,
+    progress: gr.Progress = gr.Progress(),
+):
+    if not image:
+        yield "", "Please upload an image.", viewer_html(None), None, None
+        return
+    CANCEL_EVENT.clear()
+    env, dep_logs, _, ffmpeg_available = check_dependencies()
+    log_lines: List[str] = []
+    for line in dep_logs:
+        log_lines.append(line)
+    yield "\n".join(log_lines), "Preparing job...", viewer_html(None), None, None
+    if not ffmpeg_available:
+        log_lines.append("Pipeline stopped: ffmpeg is required for image processing.")
+        yield "\n".join(log_lines), "Missing ffmpeg.", viewer_html(None), None, None
+        return
+
+    job = make_job_paths()
+    extract_inputs(None, [image], job)
+    write_preview(job)
+    input_images = list_input_images(job.input_dir)
+    if len(input_images) != 1:
+        log_lines.append("Expected a single image input, but found none.")
+        yield "\n".join(log_lines), "No image found.", viewer_html(None), None, None
+        return
+
+    yield from run_single_image_pipeline(
+        job,
+        input_images[0],
+        method,
+        quality,
+        log_lines,
+        progress,
+    )
+
+
 def build_ui() -> gr.Blocks:
     with gr.Blocks(title="Nerfstudio Splatfacto Tool") as demo:
         gr.Markdown(
@@ -961,6 +1166,24 @@ def build_ui() -> gr.Blocks:
                     label="GPU/CPU mode",
                 )
             with gr.Row():
+                single_image_method = gr.Dropdown(
+                    choices=[
+                        ("Depth Anything V2 (offline HF)", "depth-anything-v2"),
+                        ("Apple SHARP (CoreML/macOS only)", "apple-sharp"),
+                    ],
+                    value=DEFAULT_SINGLE_IMAGE_METHOD,
+                    label="Single-image fallback method",
+                )
+                single_image_quality = gr.Dropdown(
+                    choices=[
+                        ("Low (fast)", "low"),
+                        ("Medium", "medium"),
+                        ("High (best detail)", "high"),
+                    ],
+                    value=DEFAULT_SINGLE_IMAGE_QUALITY,
+                    label="Single-image quality",
+                )
+            with gr.Row():
                 run_btn = gr.Button("Run Pipeline", variant="primary")
                 cancel_btn = gr.Button("Cancel", variant="stop")
             status = gr.Markdown("Idle.")
@@ -976,7 +1199,15 @@ def build_ui() -> gr.Blocks:
 
             run_btn.click(
                 run_pipeline,
-                inputs=[zip_input, images_input, iterations, downscale, device_mode],
+                inputs=[
+                    zip_input,
+                    images_input,
+                    iterations,
+                    downscale,
+                    device_mode,
+                    single_image_method,
+                    single_image_quality,
+                ],
                 outputs=[logs, status, viewer, download_scene, download_bundle],
             )
             cancel_btn.click(cancel_pipeline, outputs=status)
@@ -999,6 +1230,48 @@ def build_ui() -> gr.Blocks:
             )
             load_job_btn.click(load_existing_scene, inputs=existing_jobs, outputs=[viewer_existing, load_status])
             load_external_btn.click(load_uploaded_scene, inputs=external_upload, outputs=[viewer_existing, load_status])
+
+        with gr.Tab("Single Image (Depth)"):
+            gr.Markdown(
+                "Upload one image to build a 3D scene using a single-image depth model. "
+                "This pipeline avoids COLMAP and is meant for one-shot reconstructions."
+            )
+            single_image_input = gr.File(
+                label="Upload a single image",
+                file_types=[".jpg", ".jpeg", ".png", ".webp"],
+                type="filepath",
+            )
+            with gr.Row():
+                single_image_method_direct = gr.Dropdown(
+                    choices=[
+                        ("Depth Anything V2 (offline HF)", "depth-anything-v2"),
+                        ("Apple SHARP (CoreML/macOS only)", "apple-sharp"),
+                    ],
+                    value=DEFAULT_SINGLE_IMAGE_METHOD,
+                    label="Depth model",
+                )
+                single_image_quality_direct = gr.Dropdown(
+                    choices=[
+                        ("Low (fast)", "low"),
+                        ("Medium", "medium"),
+                        ("High (best detail)", "high"),
+                    ],
+                    value=DEFAULT_SINGLE_IMAGE_QUALITY,
+                    label="Quality",
+                )
+            run_single_btn = gr.Button("Run Single-Image Pipeline", variant="primary")
+            single_status = gr.Markdown("Idle.")
+            single_viewer = gr.HTML(viewer_html(None))
+            single_logs = gr.Textbox(label="Logs", lines=12, value="", interactive=False)
+            with gr.Row():
+                single_download_scene = gr.File(label="Download scene file")
+                single_download_bundle = gr.File(label="Download job bundle")
+
+            run_single_btn.click(
+                run_single_image_only,
+                inputs=[single_image_input, single_image_method_direct, single_image_quality_direct],
+                outputs=[single_logs, single_status, single_viewer, single_download_scene, single_download_bundle],
+            )
 
     return demo
 
