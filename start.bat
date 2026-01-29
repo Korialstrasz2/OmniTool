@@ -42,8 +42,8 @@ if errorlevel 1 (
     exit /b 1
 )
 
-start "Gaussian Splat Scene Builder" "%PYTHON_EXE%" app.py
+start "OmniTool" "%PYTHON_EXE%" app.py
 timeout /t 3 > nul
-start "" http://localhost:7860
+start "" http://localhost:5000
 
 endlocal
