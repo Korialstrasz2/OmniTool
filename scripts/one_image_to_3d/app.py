@@ -107,29 +107,6 @@ def load_depth_map_image(path: str, size: Tuple[int, int], smoothing: float) -> 
     return normalize_depth(depth_array)
 
 
-def scaled_size(size: Tuple[int, int], max_resolution: int) -> Tuple[int, int]:
-    width, height = size
-    if max(width, height) <= max_resolution:
-        return size
-    scale = max_resolution / max(width, height)
-    return max(1, int(round(width * scale))), max(1, int(round(height * scale)))
-
-
-def resize_depth_array(depth: np.ndarray, size: Tuple[int, int]) -> np.ndarray:
-    depth_image = Image.fromarray(depth.astype(np.float32), mode="F")
-    resized = depth_image.resize(size, Image.Resampling.BICUBIC)
-    return np.asarray(resized).astype(np.float32)
-
-
-def apply_depth_resolution(depth: np.ndarray, target_size: Tuple[int, int], depth_resolution: int) -> np.ndarray:
-    if max(target_size) <= depth_resolution:
-        return depth
-    low_size = scaled_size(target_size, depth_resolution)
-    depth_low = resize_depth_array(depth, low_size)
-    depth_up = resize_depth_array(depth_low, target_size)
-    return normalize_depth(depth_up)
-
-
 def build_mesh(
     image: Image.Image,
     depth: np.ndarray,
@@ -247,13 +224,11 @@ def generate_scene(
     depth_source: str,
     depth_maps: List[str],
     max_resolution: int,
-    depth_resolution: int,
     depth_scale: float,
     xy_scale: float,
     orbit_radius: float,
     view_angles: str,
     include_depth_preview: bool,
-    invert_depth: bool,
     depth_smoothing: float,
     refine_external_depth: bool,
     refinement_model: str,
@@ -310,16 +285,8 @@ def generate_scene(
                     (1.0 - refinement_strength) * depth_norm + refinement_strength * model_norm
                 )
         else:
-            depth_image = image
-            if max(image.size) > depth_resolution:
-                depth_image = image.copy()
-                depth_image.thumbnail((depth_resolution, depth_resolution), Image.Resampling.LANCZOS)
-            depth = estimate_depth(depth_image, model_id)
-            depth = resize_depth_array(depth, image.size)
+            depth = estimate_depth(image, model_id)
             depth_norm = normalize_depth(depth)
-        depth_norm = apply_depth_resolution(depth_norm, image.size, depth_resolution)
-        if invert_depth:
-            depth_norm = 1.0 - depth_norm
         if mode == "multi_merge":
             depth_stack.append(depth_norm)
             color_stack.append(np.asarray(image))
@@ -405,14 +372,6 @@ def build_demo() -> gr.Blocks:
                     step=64,
                     label="Max resolution (higher = sharper, up to 5x)",
                 )
-                depth_resolution = gr.Slider(
-                    256,
-                    8192,
-                    value=2048,
-                    step=64,
-                    label="Depth map resolution",
-                    info="Lower values speed up depth at the cost of fine detail.",
-                )
                 depth_scale = gr.Slider(
                     0.5,
                     4.0,
@@ -473,13 +432,6 @@ def build_demo() -> gr.Blocks:
                     label="Generate depth preview",
                     info="Disable to save time; meshes still render.",
                 )
-                invert_state = gr.State(False)
-                invert_status = gr.Textbox(
-                    value="Off",
-                    label="Depth inversion",
-                    interactive=False,
-                )
-                invert_button = gr.Button("Invert depth map")
                 generate_button = gr.Button("Generate 3D Scene")
             with gr.Column(scale=2):
                 model_view = gr.Model3D(label="Explorable scene", height=720)
@@ -515,7 +467,6 @@ def build_demo() -> gr.Blocks:
 
                         **Mesh quality controls**
                         - **Max resolution** limits image size before meshing (higher = denser mesh).
-                        - **Depth map resolution** controls how much detail the depth map retains.
                         - **Depth scale** exaggerates depth (higher = taller geometry).
                         - **XY scale** spreads geometry across the X/Z plane (higher = wider scene).
                         - **Depth map smoothing** softens blocky external depth maps.
@@ -523,7 +474,6 @@ def build_demo() -> gr.Blocks:
                         **Multi-image controls**
                         - **Multi-view orbit radius**: distance between orbiting meshes.
                         - **View angles**: comma-separated angles; blank auto-distributes.
-                        - **Invert depth map**: toggles between normal and negative depth for the mesh.
 
                         **Model downloads**
                         - If a model is gated/private (e.g., some Depth Anything variants), authenticate
@@ -542,13 +492,11 @@ def build_demo() -> gr.Blocks:
                 depth_source,
                 depth_maps,
                 max_resolution,
-                depth_resolution,
                 depth_scale,
                 xy_scale,
                 orbit_radius,
                 view_angles,
                 include_depth_preview,
-                invert_state,
                 depth_smoothing,
                 refine_external_depth,
                 refinement_model,
@@ -556,13 +504,6 @@ def build_demo() -> gr.Blocks:
             ],
             outputs=[model_view, depth_preview, download_mesh],
         )
-
-        def toggle_inversion(current_state: bool) -> Tuple[bool, str]:
-            new_state = not current_state
-            status = "On" if new_state else "Off"
-            return new_state, status
-
-        invert_button.click(toggle_inversion, inputs=[invert_state], outputs=[invert_state, invert_status])
     return demo
 
 
