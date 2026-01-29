@@ -8,7 +8,7 @@ import gradio as gr
 import numpy as np
 import torch
 import trimesh
-from PIL import Image
+from PIL import Image, ImageFilter
 from transformers import AutoImageProcessor, AutoModelForDepthEstimation
 
 ENGINE_SPECS = {
@@ -67,8 +67,15 @@ def normalize_depth(depth: np.ndarray) -> np.ndarray:
 @lru_cache(maxsize=len(ENGINE_SPECS))
 def load_depth_model(model_id: str) -> Tuple[AutoImageProcessor, AutoModelForDepthEstimation, str]:
     device = pick_device()
-    processor = AutoImageProcessor.from_pretrained(model_id, use_fast=False)
-    model = AutoModelForDepthEstimation.from_pretrained(model_id)
+    try:
+        processor = AutoImageProcessor.from_pretrained(model_id, use_fast=False)
+        model = AutoModelForDepthEstimation.from_pretrained(model_id)
+    except OSError as exc:
+        raise gr.Error(
+            "Failed to load the depth model. If the model is private or gated, "
+            "log in with `huggingface-cli login` or set HF_TOKEN. "
+            f"Original error: {exc}"
+        ) from exc
     model.to(device)
     model.eval()
     return processor, model, device
@@ -90,10 +97,12 @@ def estimate_depth(image: Image.Image, model_id: str) -> np.ndarray:
     return depth.cpu().numpy()
 
 
-def load_depth_map_image(path: str, size: Tuple[int, int]) -> np.ndarray:
+def load_depth_map_image(path: str, size: Tuple[int, int], smoothing: float) -> np.ndarray:
     depth_image = Image.open(path).convert("L")
+    if smoothing > 0:
+        depth_image = depth_image.filter(ImageFilter.GaussianBlur(radius=smoothing))
     if depth_image.size != size:
-        depth_image = depth_image.resize(size, Image.Resampling.BILINEAR)
+        depth_image = depth_image.resize(size, Image.Resampling.LANCZOS)
     depth_array = np.asarray(depth_image).astype(np.float32)
     return normalize_depth(depth_array)
 
@@ -151,12 +160,15 @@ def ensure_model_assets() -> None:
             continue
         if not model_id:
             continue
-        processor = AutoImageProcessor.from_pretrained(model_id, use_fast=False)
-        model = AutoModelForDepthEstimation.from_pretrained(model_id)
-        device = pick_device()
-        model.to(device)
-        model.eval()
-        del processor, model
+        try:
+            processor = AutoImageProcessor.from_pretrained(model_id, use_fast=False)
+            model = AutoModelForDepthEstimation.from_pretrained(model_id)
+            device = pick_device()
+            model.to(device)
+            model.eval()
+            del processor, model
+        except OSError:
+            continue
 
 
 def load_images_from_paths(paths: Iterable[str], max_resolution: int) -> List[Image.Image]:
@@ -217,6 +229,10 @@ def generate_scene(
     orbit_radius: float,
     view_angles: str,
     include_depth_preview: bool,
+    depth_smoothing: float,
+    refine_external_depth: bool,
+    refinement_model: str,
+    refinement_strength: float,
 ):
     if mode == "single":
         if input_image is None:
@@ -246,6 +262,8 @@ def generate_scene(
             raise gr.Error("Provide one depth map per image for external depth blending.")
     if depth_source == "model" and not model_id:
         raise gr.Error("Select a model-based engine or provide a custom model ID.")
+    if depth_source == "external" and refine_external_depth and not refinement_model:
+        raise gr.Error("Select a refinement model or disable external depth refinement.")
     meshes = []
     depth_preview = None
     depth_stack: List[np.ndarray] = []
@@ -256,7 +274,16 @@ def generate_scene(
             image.thumbnail((max_resolution, max_resolution), Image.Resampling.LANCZOS)
         image = match_image_size(image, target_size)
         if depth_source == "external":
-            depth_norm = load_depth_map_image(depth_paths[idx], image.size)
+            depth_norm = load_depth_map_image(depth_paths[idx], image.size, depth_smoothing)
+            if refine_external_depth:
+                refinement_id = ENGINE_SPECS[refinement_model]["model_id"]
+                if not refinement_id:
+                    raise gr.Error("Refinement model must be a model-backed engine.")
+                model_depth = estimate_depth(image, refinement_id)
+                model_norm = normalize_depth(model_depth)
+                depth_norm = normalize_depth(
+                    (1.0 - refinement_strength) * depth_norm + refinement_strength * model_norm
+                )
         else:
             depth = estimate_depth(image, model_id)
             depth_norm = normalize_depth(depth)
@@ -359,6 +386,36 @@ def build_demo() -> gr.Blocks:
                     step=0.1,
                     label="XY scale",
                 )
+                depth_smoothing = gr.Slider(
+                    0.0,
+                    2.0,
+                    value=0.3,
+                    step=0.1,
+                    label="Depth map smoothing (external)",
+                    info="Slight smoothing reduces blocky depth maps (use 0 for raw).",
+                )
+                refine_external_depth = gr.Checkbox(
+                    value=False,
+                    label="Refine external depth with model detail",
+                    info="Blend model-predicted depth into external depth for extra detail.",
+                )
+                refinement_model = gr.Dropdown(
+                    [
+                        name
+                        for name, spec in ENGINE_SPECS.items()
+                        if not spec.get("external_only") and name != "Custom / external model ID"
+                    ],
+                    value="Depth Anything V2 Large (high detail)",
+                    label="Refinement model",
+                )
+                refinement_strength = gr.Slider(
+                    0.0,
+                    1.0,
+                    value=0.35,
+                    step=0.05,
+                    label="Refinement strength",
+                    info="0 = pure external depth, 1 = pure model depth.",
+                )
                 orbit_radius = gr.Slider(
                     0.0,
                     4.0,
@@ -381,6 +438,48 @@ def build_demo() -> gr.Blocks:
                 download_mesh = gr.File(label="Download mesh")
                 with gr.Accordion("Depth preview (optional)", open=False):
                     depth_preview = gr.Image(label="Depth preview", type="pil", visible=False)
+                with gr.Accordion("Help", open=False):
+                    gr.Markdown(
+                        """
+                        ## Help & settings guide
+
+                        **Getting high quality with Apple SHARP**
+                        - Use **Depth source = External** and upload SHARP depth maps.
+                        - Set **Max resolution** to match your input image (e.g., 4096–8192).
+                        - Enable **Refine external depth with model detail** and choose a refinement model
+                          (Depth Anything V2 Large is a good balance). Increase **Refinement strength**
+                          to add model detail while keeping SHARP geometry.
+                        - If the SHARP depth looks blocky, raise **Depth map smoothing** slightly
+                          (0.2–0.6) to reduce pixelation without flattening detail.
+
+                        **Inputs**
+                        - **Scene input mode**:
+                          - `single`: one image → one mesh.
+                          - `multi_orbit`: multiple images become separate meshes placed around a circle.
+                          - `multi_merge`: multiple images merge into one depth/color map (median).
+                        - **Depth engine**: selects the model used when **Depth source = Model**.
+                        - **Custom model ID**: overrides the engine with any Hugging Face model ID.
+
+                        **Depth source interaction**
+                        - `model`: uses the selected engine or custom model ID.
+                        - `external`: uses uploaded depth maps; **Refine external depth** can optionally
+                          mix in model detail.
+
+                        **Mesh quality controls**
+                        - **Max resolution** limits image size before meshing (higher = denser mesh).
+                        - **Depth scale** exaggerates depth (higher = taller geometry).
+                        - **XY scale** spreads geometry across the X/Z plane (higher = wider scene).
+                        - **Depth map smoothing** softens blocky external depth maps.
+
+                        **Multi-image controls**
+                        - **Multi-view orbit radius**: distance between orbiting meshes.
+                        - **View angles**: comma-separated angles; blank auto-distributes.
+
+                        **Model downloads**
+                        - If a model is gated/private (e.g., some Depth Anything variants), authenticate
+                          with `huggingface-cli login` or set `HF_TOKEN` before launching.
+                        """
+                    )
 
         generate_button.click(
             generate_scene,
@@ -398,6 +497,10 @@ def build_demo() -> gr.Blocks:
                 orbit_radius,
                 view_angles,
                 include_depth_preview,
+                depth_smoothing,
+                refine_external_depth,
+                refinement_model,
+                refinement_strength,
             ],
             outputs=[model_view, depth_preview, download_mesh],
         )
