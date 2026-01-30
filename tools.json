@@ -42,12 +42,6 @@
     "command": "python comfy_prompt_builder/start.py"
   },
   {
-    "id": "nerfstudio-splat-tool",
-    "name": "Nerfstudio Splatfacto Scene Builder",
-    "description": "Standalone Gradio app to build navigable 3D scenes from multi-image captures",
-    "command": "nerfstudio_splat_tool/start.bat"
-  },
-  {
     "id": "hunyuan3d-manager",
     "name": "Hunyuan3D 2.1 Manager",
     "description": "Clone, update, and run the Tencent Hunyuan3D 2.1 toolkit with a rich command builder",
