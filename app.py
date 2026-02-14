@@ -17,6 +17,7 @@ SCRIPTS_DIR = BASE_DIR / 'scripts'
 HUNYUAN_DEFAULT_REPO = SCRIPTS_DIR / 'hunyuan3d-2.1'
 HUNYUAN_CONFIG = SCRIPTS_DIR / 'hunyuan3d_config.json'
 HUNYUAN_REPO_URL = 'https://github.com/tencent-hunyuan/hunyuan3d-2.1.git'
+LYRICS_CONFIG = SCRIPTS_DIR / 'lyrics_embedder_config.json'
 
 
 def load_tools():
@@ -48,6 +49,40 @@ def save_hunyuan_settings(settings: Dict[str, str]) -> None:
     """Persist configuration for the Hunyuan3D manager."""
     HUNYUAN_CONFIG.parent.mkdir(parents=True, exist_ok=True)
     with open(HUNYUAN_CONFIG, 'w') as config_file:
+        json.dump(settings, config_file, indent=2)
+
+
+def load_lyrics_settings() -> Dict[str, str]:
+    defaults = {
+        'root_path': str(Path.home()),
+        'workers': '12',
+        'max_inflight': '0',
+        'min_delay': '0.0',
+        'timeout': '20.0',
+        'retries': '3',
+        'backoff': '1.25',
+        'status_every': '5.0',
+        'cache_flush_every': '200',
+        'max_files': '0',
+        'ai_rounds': '2',
+        'ai_model': 'gpt-4.1-mini',
+        'exts': '.mp3,.flac,.m4a,.mp4,.aac,.ogg,.opus',
+        'log_level': 'INFO',
+        'log_file': '',
+    }
+    if LYRICS_CONFIG.exists():
+        try:
+            with open(LYRICS_CONFIG) as config_file:
+                stored = json.load(config_file)
+                defaults.update(stored)
+        except json.JSONDecodeError:
+            pass
+    return defaults
+
+
+def save_lyrics_settings(settings: Dict[str, str]) -> None:
+    LYRICS_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+    with open(LYRICS_CONFIG, 'w') as config_file:
         json.dump(settings, config_file, indent=2)
 
 
@@ -148,6 +183,8 @@ def tool_detail(tool_id):
         return redirect(url_for('index'))
     if tool_id == 'hunyuan3d-manager':
         return redirect(url_for('hunyuan3d'))
+    if tool_id == 'lyrics-embedder-manager':
+        return redirect(url_for('lyrics_embedder'))
     return render_template('tool.html', tool=tool)
 
 
@@ -314,6 +351,66 @@ def hunyuan3d_run():
     except FileNotFoundError as exc:  # pragma: no cover - depends on filesystem
         flash(f"Unable to start command: {exc}", 'error')
     return redirect(url_for('hunyuan3d'))
+
+
+@app.get('/lyrics-embedder')
+def lyrics_embedder():
+    settings = load_lyrics_settings()
+    return render_template('lyrics_embedder.html', settings=settings)
+
+
+@app.post('/lyrics-embedder/save-settings')
+def lyrics_embedder_save_settings():
+    fields = [
+        'root_path', 'workers', 'max_inflight', 'min_delay', 'timeout', 'retries',
+        'backoff', 'status_every', 'cache_flush_every', 'max_files', 'ai_rounds',
+        'ai_model', 'exts', 'log_level', 'log_file',
+    ]
+    settings = {field: request.form.get(field, '').strip() for field in fields}
+    save_lyrics_settings(settings)
+    flash('Lyrics embedder settings saved.', 'success')
+    return redirect(url_for('lyrics_embedder'))
+
+
+@app.post('/lyrics-embedder/run')
+def lyrics_embedder_run():
+    settings = load_lyrics_settings()
+    root_path = request.form.get('root_path', settings['root_path']).strip() or settings['root_path']
+    command: List[str] = [sys.executable, 'lyrics_embedder.py', root_path]
+
+    def append_arg(flag: str, value: str) -> None:
+        cleaned = value.strip()
+        if cleaned:
+            command.extend([flag, cleaned])
+
+    append_arg('--workers', request.form.get('workers', settings['workers']))
+    append_arg('--max-inflight', request.form.get('max_inflight', settings['max_inflight']))
+    append_arg('--min-delay', request.form.get('min_delay', settings['min_delay']))
+    append_arg('--timeout', request.form.get('timeout', settings['timeout']))
+    append_arg('--retries', request.form.get('retries', settings['retries']))
+    append_arg('--backoff', request.form.get('backoff', settings['backoff']))
+    append_arg('--status-every', request.form.get('status_every', settings['status_every']))
+    append_arg('--cache-flush-every', request.form.get('cache_flush_every', settings['cache_flush_every']))
+    append_arg('--max-files', request.form.get('max_files', settings['max_files']))
+    append_arg('--ai-rounds', request.form.get('ai_rounds', settings['ai_rounds']))
+    append_arg('--ai-model', request.form.get('ai_model', settings['ai_model']))
+    append_arg('--exts', request.form.get('exts', settings['exts']))
+    append_arg('--log-level', request.form.get('log_level', settings['log_level']))
+    append_arg('--log-file', request.form.get('log_file', settings['log_file']))
+
+    if request.form.get('force'):
+        command.append('--force')
+    if request.form.get('keep_synced'):
+        command.append('--keep-synced')
+    if request.form.get('ai_if_failed'):
+        command.append('--ai-if-failed')
+
+    try:
+        subprocess.Popen(command, cwd=str(SCRIPTS_DIR), env=os.environ.copy())
+        flash(f"Started lyrics embedding run: {shlex.join(command)}", 'success')
+    except Exception as exc:  # pragma: no cover - environment specific
+        flash(f"Unable to start lyrics embedder: {exc}", 'error')
+    return redirect(url_for('lyrics_embedder'))
 
 
 if __name__ == '__main__':

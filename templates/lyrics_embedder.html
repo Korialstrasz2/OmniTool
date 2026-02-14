@@ -1,0 +1,130 @@
+{% extends 'base.html' %}
+{% block content %}
+  <h2>Lyrics Embedder Manager</h2>
+  <p class="lead">
+    Scan a music library, fetch lyrics from multiple providers, and embed them into audio tags.
+    You can tune concurrency, retries, cache behavior, and optionally trigger AI metadata recovery when providers fail.
+  </p>
+
+  <section class="card">
+    <div class="card-header">
+      <h3>Configuration</h3>
+      <p>Persist default options for repeat runs from this dashboard.</p>
+    </div>
+    <form class="stack" method="post" action="{{ url_for('lyrics_embedder_save_settings') }}">
+      <div class="form-grid">
+        <label>
+          <span>Music folder</span>
+          <input type="text" name="root_path" value="{{ settings['root_path'] }}" required>
+        </label>
+        <label>
+          <span>Parallel bots (workers)</span>
+          <input type="number" name="workers" min="1" value="{{ settings['workers'] }}" required>
+        </label>
+        <label>
+          <span>Max in-flight jobs (0 = auto)</span>
+          <input type="number" name="max_inflight" min="0" value="{{ settings['max_inflight'] }}">
+        </label>
+      </div>
+
+      <div class="form-grid">
+        <label>
+          <span>Timeout (seconds)</span>
+          <input type="text" name="timeout" value="{{ settings['timeout'] }}">
+        </label>
+        <label>
+          <span>Retries per provider</span>
+          <input type="number" name="retries" min="1" value="{{ settings['retries'] }}">
+        </label>
+        <label>
+          <span>Backoff base</span>
+          <input type="text" name="backoff" value="{{ settings['backoff'] }}">
+        </label>
+      </div>
+
+      <div class="form-grid">
+        <label>
+          <span>Min delay between provider calls (seconds)</span>
+          <input type="text" name="min_delay" value="{{ settings['min_delay'] }}">
+        </label>
+        <label>
+          <span>Status heartbeat (seconds)</span>
+          <input type="text" name="status_every" value="{{ settings['status_every'] }}">
+        </label>
+        <label>
+          <span>Cache flush every N files</span>
+          <input type="number" name="cache_flush_every" min="1" value="{{ settings['cache_flush_every'] }}">
+        </label>
+      </div>
+
+      <div class="form-grid">
+        <label>
+          <span>Max files (0 = no cap)</span>
+          <input type="number" name="max_files" min="0" value="{{ settings['max_files'] }}">
+        </label>
+        <label>
+          <span>AI rounds on failure</span>
+          <input type="number" name="ai_rounds" min="0" value="{{ settings['ai_rounds'] }}">
+        </label>
+        <label>
+          <span>AI model</span>
+          <input type="text" name="ai_model" value="{{ settings['ai_model'] }}">
+        </label>
+      </div>
+
+      <div class="form-grid">
+        <label>
+          <span>Extensions</span>
+          <input type="text" name="exts" value="{{ settings['exts'] }}">
+        </label>
+        <label>
+          <span>Log level</span>
+          <select name="log_level">
+            {% for level in ['DEBUG', 'INFO', 'WARNING', 'ERROR'] %}
+              <option value="{{ level }}" {% if settings['log_level'] == level %}selected{% endif %}>{{ level }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          <span>Optional log file path</span>
+          <input type="text" name="log_file" value="{{ settings['log_file'] }}">
+        </label>
+      </div>
+
+      <button type="submit">Save defaults</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <div class="card-header">
+      <h3>Run job</h3>
+      <p>Launches <code>scripts/lyrics_embedder.py</code> in the background.</p>
+    </div>
+    <form class="stack" method="post" action="{{ url_for('lyrics_embedder_run') }}">
+      <input type="hidden" name="root_path" value="{{ settings['root_path'] }}">
+      <input type="hidden" name="workers" value="{{ settings['workers'] }}">
+      <input type="hidden" name="max_inflight" value="{{ settings['max_inflight'] }}">
+      <input type="hidden" name="min_delay" value="{{ settings['min_delay'] }}">
+      <input type="hidden" name="timeout" value="{{ settings['timeout'] }}">
+      <input type="hidden" name="retries" value="{{ settings['retries'] }}">
+      <input type="hidden" name="backoff" value="{{ settings['backoff'] }}">
+      <input type="hidden" name="status_every" value="{{ settings['status_every'] }}">
+      <input type="hidden" name="cache_flush_every" value="{{ settings['cache_flush_every'] }}">
+      <input type="hidden" name="max_files" value="{{ settings['max_files'] }}">
+      <input type="hidden" name="ai_rounds" value="{{ settings['ai_rounds'] }}">
+      <input type="hidden" name="ai_model" value="{{ settings['ai_model'] }}">
+      <input type="hidden" name="exts" value="{{ settings['exts'] }}">
+      <input type="hidden" name="log_level" value="{{ settings['log_level'] }}">
+      <input type="hidden" name="log_file" value="{{ settings['log_file'] }}">
+
+      <fieldset class="options">
+        <legend>Run flags</legend>
+        <label><input type="checkbox" name="force" value="1"> Force overwrite existing lyrics</label>
+        <label><input type="checkbox" name="keep_synced" value="1"> Keep synced LRC timestamps if returned</label>
+        <label><input type="checkbox" name="ai_if_failed" value="1"> AI if failed (metadata recovery + re-query providers)</label>
+      </fieldset>
+      <p class="help-text">AI mode requires <code>OPENAI_API_KEY</code> and the <code>openai</code> package installed.</p>
+      <button type="submit">Start lyrics embedding</button>
+    </form>
+  </section>
+{% endblock %}
