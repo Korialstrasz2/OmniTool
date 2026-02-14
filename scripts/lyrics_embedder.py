@@ -10,6 +10,7 @@ import os
 import re
 import threading
 import time
+import unicodedata
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
@@ -42,7 +43,14 @@ CACHE_VERSION = 3
 def norm(s: Optional[str]) -> Optional[str]:
     if not s:
         return None
-    return re.sub(r"\s+", " ", s.strip()) or None
+    normalized = unicodedata.normalize("NFKC", s)
+    normalized = normalized.replace("’", "'").replace("`", "'")
+    normalized = normalized.replace("“", '"').replace("”", '"')
+    return re.sub(r"\s+", " ", normalized.strip()) or None
+
+
+def strip_leading_track_number(text: str) -> str:
+    return re.sub(r"^\d{1,3}[\s._-]+", "", text).strip()
 
 
 def safe_get_first(tagval: Any) -> Optional[str]:
@@ -59,7 +67,7 @@ def safe_get_first(tagval: Any) -> Optional[str]:
 
 
 def parse_artist_title_from_filename(path: Path) -> Tuple[Optional[str], Optional[str]]:
-    stem = path.stem
+    stem = strip_leading_track_number(path.stem)
     for sep in (" - ", " – ", " — "):
         if sep in stem:
             artist, title = stem.split(sep, 1)
@@ -197,8 +205,35 @@ def embed_lyrics(path: Path, lyrics: str) -> None:
 
 def walk_audio_files(root: Path, exts: Set[str]) -> Iterable[Path]:
     for path in root.rglob("*"):
+        if path.name.startswith("._"):
+            continue
         if path.is_file() and path.suffix.lower() in exts:
             yield path
+
+
+def title_candidates(title: str) -> Tuple[str, ...]:
+    """Generate safe fallback title variants for provider lookups."""
+    candidates: list[str] = []
+
+    def add(value: Optional[str]) -> None:
+        cleaned = norm(value)
+        if cleaned and cleaned not in candidates:
+            candidates.append(cleaned)
+
+    add(title)
+    if not candidates:
+        return tuple()
+
+    base = candidates[0]
+    add(re.sub(r"\s*[\[(].*?[\])]\s*$", "", base))
+    add(re.sub(r"\s+-\s+(extended|remix|mix|version|edit|demo|instrumental).*$", "", base, flags=re.IGNORECASE))
+    add(re.sub(r"\.\s*\d+$", "", base))
+
+    ascii_folded = unicodedata.normalize("NFKD", base).encode("ascii", "ignore").decode("ascii")
+    add(ascii_folded)
+    add(re.sub(r"\s*[\[(].*?[\])]\s*$", "", ascii_folded))
+
+    return tuple(candidates)
 
 
 def load_cache(cache_path: Path, logger: logging.Logger) -> Dict[str, Any]:
@@ -432,24 +467,32 @@ class ProcessResult:
 
 def attempt_fetch_and_embed(path: Path, artist: str, title: str, album: Optional[str], duration_ms: Optional[int], keep_synced: bool, timeout: float, retries: int, backoff: float, min_delay: float, providers: Tuple[Provider, ...], user_agent: str, logger: logging.Logger) -> Optional[ProviderResult]:
     session = get_thread_session(user_agent)
-    for provider in providers:
-        result = provider.fetch(
-            session=session,
-            artist=artist,
-            title=title,
-            album=album,
-            duration_ms=duration_ms,
-            timeout=timeout,
-            retries=retries,
-            backoff=backoff,
-            logger=logger,
-            keep_synced=keep_synced,
-        )
-        if min_delay > 0:
-            time.sleep(min_delay)
-        if result and result.lyrics and result.lyrics.strip():
-            embed_lyrics(path, result.lyrics)
-            return result
+    for candidate_title in title_candidates(title):
+        for provider in providers:
+            result = provider.fetch(
+                session=session,
+                artist=artist,
+                title=candidate_title,
+                album=album,
+                duration_ms=duration_ms,
+                timeout=timeout,
+                retries=retries,
+                backoff=backoff,
+                logger=logger,
+                keep_synced=keep_synced,
+            )
+            if min_delay > 0:
+                time.sleep(min_delay)
+            if result and result.lyrics and result.lyrics.strip():
+                embed_lyrics(path, result.lyrics)
+                if candidate_title != title:
+                    logger.info(
+                        "Matched lyrics for '%s - %s' via title variant '%s'",
+                        artist,
+                        title,
+                        candidate_title,
+                    )
+                return result
     return None
 
 

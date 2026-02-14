@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-from flask import Flask, flash, redirect, render_template, request, url_for
+from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'change-me'
@@ -18,6 +18,12 @@ HUNYUAN_DEFAULT_REPO = SCRIPTS_DIR / 'hunyuan3d-2.1'
 HUNYUAN_CONFIG = SCRIPTS_DIR / 'hunyuan3d_config.json'
 HUNYUAN_REPO_URL = 'https://github.com/tencent-hunyuan/hunyuan3d-2.1.git'
 LYRICS_CONFIG = SCRIPTS_DIR / 'lyrics_embedder_config.json'
+
+try:
+    from openai import OpenAI
+except Exception:  # pragma: no cover - optional runtime dependency
+    OpenAI = None  # type: ignore
+
 
 
 def load_tools():
@@ -414,6 +420,40 @@ def lyrics_embedder_run():
     except Exception as exc:  # pragma: no cover - environment specific
         flash(f"Unable to start lyrics embedder: {exc}", 'error')
     return redirect(url_for('lyrics_embedder'))
+
+
+@app.post('/lyrics-embedder/ai-ping')
+def lyrics_embedder_ai_ping():
+    model = request.form.get('ai_model', '').strip()
+    if not model and request.is_json:
+        payload = request.get_json(silent=True) or {}
+        model = str(payload.get('ai_model', '')).strip()
+    if not model:
+        model = (load_lyrics_settings().get('ai_model') or 'gpt-5-mini-2025-08-07').strip()
+
+    if OpenAI is None:
+        return jsonify({'ok': False, 'error': 'openai package is not installed in this environment.'}), 500
+
+    api_key = os.environ.get('OPENAI_API_KEY')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'OPENAI_API_KEY is not set.'}), 400
+
+    try:
+        client = OpenAI(api_key=api_key, timeout=20.0)
+        response = client.responses.create(
+            model=model,
+            input='Share one short random interesting fact in a single sentence.',
+        )
+        text = (getattr(response, 'output_text', None) or '').strip()
+        if not text:
+            return jsonify({
+                'ok': False,
+                'error': 'Ping succeeded but returned empty output_text.',
+                'raw_response': str(response),
+            }), 502
+        return jsonify({'ok': True, 'model': model, 'response': text})
+    except Exception as exc:  # pragma: no cover - depends on runtime service/config
+        return jsonify({'ok': False, 'error': f'{type(exc).__name__}: {exc}', 'model': model}), 502
 
 
 @app.get('/lyrics-embedder/logs')
