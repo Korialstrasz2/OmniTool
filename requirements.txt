@@ -6,3 +6,5 @@ pymupdf>=1.23
 fastapi>=0.110
 uvicorn[standard]>=0.28
 requests>=2.31
+mutagen>=1.47
+openai>=1.51

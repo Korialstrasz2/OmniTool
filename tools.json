@@ -46,5 +46,11 @@
     "name": "Hunyuan3D 2.1 Manager",
     "description": "Clone, update, and run the Tencent Hunyuan3D 2.1 toolkit with a rich command builder",
     "command": ""
+  },
+  {
+    "id": "lyrics-embedder-manager",
+    "name": "Lyrics Embedder Manager",
+    "description": "Embed lyrics into audio tags with provider fallbacks and optional AI metadata recovery.",
+    "command": ""
   }
 ]
