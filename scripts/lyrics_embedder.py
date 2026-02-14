@@ -37,6 +37,7 @@ CHARTLYRICS_DIRECT = "http://api.chartlyrics.com/apiv1.asmx/SearchLyricDirect"
 CACHE_FILE = ".lyrics_cache.json"
 OK_LOG = "lyrics_embedded.txt"
 FAILED_LOG = "lyrics_failed.txt"
+AI_LOG = "lyrics_ai_calls.log"
 CACHE_VERSION = 3
 
 
@@ -373,12 +374,15 @@ def get_thread_session(user_agent: str) -> requests.Session:
 
 
 class MetadataAIAssistant:
-    def __init__(self, enabled: bool, model: str, timeout: float, logger: logging.Logger):
+    def __init__(self, enabled: bool, model: str, timeout: float, logger: logging.Logger, ai_logger: logging.Logger):
         self.enabled = enabled
         self.model = model
         self.timeout = timeout
         self.logger = logger
+        self.ai_logger = ai_logger
         self.client = None
+        self._lock = threading.Lock()
+        self._request_counter = 0
         if not enabled:
             return
         api_key = os.environ.get("OPENAI_API_KEY")
@@ -392,7 +396,7 @@ class MetadataAIAssistant:
             return
         self.client = OpenAI(api_key=api_key, timeout=timeout)
 
-    def suggest(self, original: Dict[str, Any]) -> Optional[Dict[str, Optional[str]]]:
+    def suggest(self, original: Dict[str, Any], rel_path: str) -> Optional[Dict[str, Optional[str]]]:
         if not self.enabled or self.client is None:
             return None
 
@@ -404,36 +408,59 @@ class MetadataAIAssistant:
             "notes": "string"
         }
         prompt = (
-            "You are a music metadata correction assistant."
-            " Return ONLY strict JSON and nothing else."
-            " If unsure, keep original values and lower confidence."
-            " Never invent random songs."
-            " JSON schema: " + json.dumps(schema) +
+            "You are a music metadata correction assistant for lyrics lookup failures."
+            " Return ONLY strict JSON and no markdown."
+            " Keep corrections conservative and focused on making lyrics providers match."
+            " Remove leading track numbers (e.g. '01 - Lovesong' -> 'Lovesong')."
+            " Remove non-essential decorations like '(Remastered 2011)' or '[Official Audio]' when they hurt lookup quality."
+            " Fix obvious separator issues in artist/title fields, but do not hallucinate songs."
+            " Prefer preserving original values if uncertain and set low confidence."
+            "\nResponse JSON schema: " + json.dumps(schema) +
+            "\nExamples:"
+            "\nInput: {'artist':'The Cure','title':'01 - Lovesong','album':'Disintegration (Remastered)','filename':'01 - Lovesong.mp3'}"
+            "\nOutput: {'artist':'The Cure','title':'Lovesong','album':'Disintegration','confidence':'high','notes':'Removed track index and remaster suffix.'}"
+            "\nInput: {'artist':'Daft Punk -','title':'- One More Time','album':'Discovery','filename':'02 - One More Time.flac'}"
+            "\nOutput: {'artist':'Daft Punk','title':'One More Time','album':'Discovery','confidence':'medium','notes':'Trimmed broken separators.'}"
+            "\nInput: {'artist':'Unknown','title':'Track 7','album':'','filename':'track07.mp3'}"
+            "\nOutput: {'artist':'Unknown','title':'Track 7','album':null,'confidence':'low','notes':'Insufficient information to improve metadata.'}"
             "\nInput metadata: " + json.dumps(original, ensure_ascii=False)
         )
-        try:
-            response = self.client.responses.create(
-                model=self.model,
-                input=[{"role": "user", "content": prompt}],
-            )
-            text = (response.output_text or "").strip()
-            if not text:
-                return None
-            data = json.loads(text)
-            if not isinstance(data, dict):
-                return None
-            confidence = str(data.get("confidence", "")).lower()
-            if confidence not in {"high", "medium"}:
-                self.logger.info("AI metadata skipped due to low confidence: %s", confidence or "unknown")
-                return None
-            return {
-                "artist": norm(data.get("artist")) or norm(original.get("artist")),
-                "title": norm(data.get("title")) or norm(original.get("title")),
-                "album": norm(data.get("album")) or norm(original.get("album")),
-            }
-        except Exception as exc:
-            self.logger.warning("AI metadata recovery failed: %s", exc)
-            return None
+        with self._lock:
+            self._request_counter += 1
+            req_id = self._request_counter
+            for attempt in range(1, 6):
+                try:
+                    self.ai_logger.info("request=%s path=%s attempt=%d metadata=%s", req_id, rel_path, attempt, json.dumps(original, ensure_ascii=False))
+                    response = self.client.responses.create(
+                        model=self.model,
+                        input=[{"role": "user", "content": prompt}],
+                    )
+                    text = (response.output_text or "").strip()
+                    self.ai_logger.info("request=%s path=%s attempt=%d raw_response=%s", req_id, rel_path, attempt, text)
+                    if not text:
+                        return None
+                    data = json.loads(text)
+                    if not isinstance(data, dict):
+                        return None
+                    confidence = str(data.get("confidence", "")).lower()
+                    if confidence not in {"high", "medium"}:
+                        self.logger.info("AI metadata skipped due to low confidence: %s", confidence or "unknown")
+                        return None
+                    suggestion = {
+                        "artist": norm(data.get("artist")) or norm(original.get("artist")),
+                        "title": norm(data.get("title")) or norm(original.get("title")),
+                        "album": norm(data.get("album")) or norm(original.get("album")),
+                    }
+                    self.ai_logger.info("request=%s path=%s accepted_suggestion=%s", req_id, rel_path, json.dumps(suggestion, ensure_ascii=False))
+                    return suggestion
+                except Exception as exc:
+                    self.ai_logger.warning("request=%s path=%s attempt=%d failed=%s: %s", req_id, rel_path, attempt, type(exc).__name__, exc)
+                    if attempt < 5:
+                        time.sleep(1.0)
+                    else:
+                        self.logger.warning("AI metadata recovery failed after retries: %s", exc)
+                        return None
+        return None
 
 
 class LineWriter:
@@ -532,12 +559,13 @@ def process_one(path: Path, root: Path, exts: Set[str], force: bool, min_delay: 
         current_artist, current_title, current_album = artist, title, album
         for ai_round in range(ai_rounds):
             suggestion = ai_assistant.suggest({
+                # Each failed song is queued through the assistant one-by-one.
                 "artist": current_artist,
                 "title": current_title,
                 "album": current_album,
                 "duration_ms": duration_ms,
                 "filename": path.name,
-            })
+            }, rel)
             if not suggestion or not suggestion.get("artist") or not suggestion.get("title"):
                 break
             current_artist = suggestion["artist"]
@@ -560,14 +588,15 @@ def process_one(path: Path, root: Path, exts: Set[str], force: bool, min_delay: 
         return ProcessResult("failed", rel, reason=str(exc))
 
 
-def setup_logger(level: str, log_file: Optional[Path]) -> logging.Logger:
-    logger = logging.getLogger("lyrics_embedder")
+def setup_logger(name: str, level: str, log_file: Optional[Path], with_console: bool = True) -> logging.Logger:
+    logger = logging.getLogger(name)
     logger.setLevel(getattr(logging, level.upper(), logging.INFO))
     logger.handlers.clear()
     fmt = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s", datefmt="%H:%M:%S")
-    stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(fmt)
-    logger.addHandler(stream_handler)
+    if with_console:
+        stream_handler = logging.StreamHandler()
+        stream_handler.setFormatter(fmt)
+        logger.addHandler(stream_handler)
     if log_file:
         file_handler = logging.FileHandler(log_file, encoding="utf-8")
         file_handler.setFormatter(fmt)
@@ -596,6 +625,7 @@ def main() -> int:
     parser.add_argument("--ai-if-failed", action="store_true", help="Try AI metadata recovery when all providers fail.")
     parser.add_argument("--ai-rounds", type=int, default=2, help="How many AI correction rounds to run after failures.")
     parser.add_argument("--ai-model", default="gpt-4.1-mini", help="OpenAI model used for metadata correction.")
+    parser.add_argument("--ai-log-file", default="", help="Optional dedicated log file for AI metadata calls.")
     args = parser.parse_args()
 
     root = Path(args.root).expanduser().resolve()
@@ -604,7 +634,7 @@ def main() -> int:
         return 2
 
     log_file = Path(args.log_file).expanduser().resolve() if args.log_file else None
-    logger = setup_logger(args.log_level, log_file)
+    logger = setup_logger("lyrics_embedder", args.log_level, log_file)
 
     exts = AUDIO_EXTS_DEFAULT if not args.exts.strip() else {ext.strip().lower() for ext in args.exts.split(",") if ext.strip()}
     if not exts:
@@ -622,7 +652,10 @@ def main() -> int:
     cache.setdefault("items", {})
     cache_lock = threading.Lock()
     providers: Tuple[Provider, ...] = (LRCLibProvider(), LyricsOvhProvider(), ChartLyricsProvider())
-    ai_assistant = MetadataAIAssistant(enabled=args.ai_if_failed, model=args.ai_model, timeout=args.timeout, logger=logger)
+    ai_log_file = Path(args.ai_log_file).expanduser().resolve() if args.ai_log_file else (root / AI_LOG)
+    ai_logger = setup_logger("lyrics_embedder.ai", args.log_level, ai_log_file, with_console=False)
+
+    ai_assistant = MetadataAIAssistant(enabled=args.ai_if_failed, model=args.ai_model, timeout=args.timeout, logger=logger, ai_logger=ai_logger)
 
     max_inflight = args.max_inflight if args.max_inflight > 0 else max(8, args.workers * 8)
     user_agent = "lyrics-embedder/3.0"
@@ -630,6 +663,7 @@ def main() -> int:
     logger.info("Root: %s", root)
     logger.info("Providers: %s", " -> ".join(p.name for p in providers))
     logger.info("AI enabled: %s | model: %s | rounds: %s", ai_assistant.enabled, args.ai_model, args.ai_rounds)
+    logger.info("AI call log: %s", ai_log_file)
 
     from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 

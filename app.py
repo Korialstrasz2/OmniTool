@@ -72,6 +72,7 @@ def load_lyrics_settings() -> Dict[str, str]:
         'max_files': '0',
         'ai_rounds': '2',
         'ai_model': 'gpt-5-mini-2025-08-07',
+        'ai_log_file': str(SCRIPTS_DIR / 'lyrics_ai_calls.log'),
         'exts': '.mp3,.flac,.m4a,.mp4,.aac,.ogg,.opus',
         'log_level': 'DEBUG',
         'log_file': str(SCRIPTS_DIR / 'lyrics_embedder.log'),
@@ -371,7 +372,7 @@ def lyrics_embedder_save_settings():
     fields = [
         'root_path', 'workers', 'max_inflight', 'min_delay', 'timeout', 'retries',
         'backoff', 'status_every', 'cache_flush_every', 'max_files', 'ai_rounds',
-        'ai_model', 'exts', 'log_level', 'log_file', 'ai_if_failed',
+        'ai_model', 'ai_log_file', 'exts', 'log_level', 'log_file', 'ai_if_failed',
     ]
     settings = {field: request.form.get(field, '').strip() for field in fields}
     settings['ai_if_failed'] = '1' if request.form.get('ai_if_failed') else '0'
@@ -402,6 +403,7 @@ def lyrics_embedder_run():
     append_arg('--max-files', request.form.get('max_files', settings['max_files']))
     append_arg('--ai-rounds', request.form.get('ai_rounds', settings['ai_rounds']))
     append_arg('--ai-model', request.form.get('ai_model', settings['ai_model']))
+    append_arg('--ai-log-file', request.form.get('ai_log_file', settings.get('ai_log_file', '')))
     append_arg('--exts', request.form.get('exts', settings['exts']))
     append_arg('--log-level', request.form.get('log_level', settings['log_level']))
     append_arg('--log-file', request.form.get('log_file', settings['log_file']))
