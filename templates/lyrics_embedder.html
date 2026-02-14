@@ -6,7 +6,7 @@
     You can tune concurrency, retries, cache behavior, and optionally trigger AI metadata recovery when providers fail.
   </p>
 
-  <section class="card">
+  <section class="card card-soft">
     <div class="card-header">
       <h3>Configuration</h3>
       <p>Persist default options for repeat runs from this dashboard.</p>
@@ -91,11 +91,16 @@
         </label>
       </div>
 
+      <label class="checkbox-inline">
+        <input type="checkbox" name="ai_if_failed" value="1" {% if settings.get('ai_if_failed', '1') != '0' %}checked{% endif %}>
+        <span>Default to <strong>AI if failed</strong> on run</span>
+      </label>
+
       <button type="submit">Save defaults</button>
     </form>
   </section>
 
-  <section class="card">
+  <section class="card card-soft">
     <div class="card-header">
       <h3>Run job</h3>
       <p>Launches <code>scripts/lyrics_embedder.py</code> in the background.</p>
@@ -121,10 +126,83 @@
         <legend>Run flags</legend>
         <label><input type="checkbox" name="force" value="1"> Force overwrite existing lyrics</label>
         <label><input type="checkbox" name="keep_synced" value="1"> Keep synced LRC timestamps if returned</label>
-        <label><input type="checkbox" name="ai_if_failed" value="1"> AI if failed (metadata recovery + re-query providers)</label>
+        <label><input type="checkbox" name="ai_if_failed" value="1" {% if settings.get('ai_if_failed', '1') != '0' %}checked{% endif %}> AI if failed (metadata recovery + re-query providers)</label>
       </fieldset>
       <p class="help-text">AI mode requires <code>OPENAI_API_KEY</code> and the <code>openai</code> package installed.</p>
       <button type="submit">Start lyrics embedding</button>
     </form>
   </section>
+
+  <section class="card card-soft">
+    <div class="card-header logs-head">
+      <div>
+        <h3>Logs</h3>
+        <p>Live tail from the configured log file, with client-side filtering.</p>
+      </div>
+      <button type="button" id="refresh-logs">Refresh</button>
+    </div>
+    <div class="form-grid logs-filters">
+      <label>
+        <span>Level filter</span>
+        <select id="log-level-filter">
+          <option value="">All</option>
+          <option value="DEBUG">DEBUG</option>
+          <option value="INFO">INFO</option>
+          <option value="WARNING">WARNING</option>
+          <option value="ERROR">ERROR</option>
+        </select>
+      </label>
+      <label>
+        <span>Search text</span>
+        <input id="log-query-filter" type="text" placeholder="artist, timeout, cache...">
+      </label>
+      <label>
+        <span>Max lines</span>
+        <input id="log-max-lines" type="number" min="50" max="2000" value="300">
+      </label>
+    </div>
+    <p class="help-text" id="log-path"></p>
+    <pre id="logs-output" class="logs-output">Loading logs...</pre>
+  </section>
+
+  <script>
+    (function () {
+      const refreshBtn = document.getElementById('refresh-logs');
+      const logsOutput = document.getElementById('logs-output');
+      const logPath = document.getElementById('log-path');
+      const levelFilter = document.getElementById('log-level-filter');
+      const queryFilter = document.getElementById('log-query-filter');
+      const maxLines = document.getElementById('log-max-lines');
+
+      async function refreshLogs() {
+        const params = new URLSearchParams({
+          level: levelFilter.value,
+          q: queryFilter.value,
+          max_lines: maxLines.value || '300',
+          log_file: {{ settings['log_file']|tojson }},
+        });
+        logsOutput.textContent = 'Loading logs...';
+        try {
+          const response = await fetch(`{{ url_for('lyrics_embedder_logs') }}?${params.toString()}`);
+          const payload = await response.json();
+          logPath.textContent = `Source: ${payload.log_path || 'N/A'}`;
+          if (!payload.ok) {
+            logsOutput.textContent = payload.message || 'No logs yet.';
+            return;
+          }
+          logsOutput.textContent = payload.lines.length ? payload.lines.join('\n') : 'No matching log lines.';
+        } catch (error) {
+          logsOutput.textContent = `Unable to load logs: ${error}`;
+        }
+      }
+
+      refreshBtn.addEventListener('click', refreshLogs);
+      levelFilter.addEventListener('change', refreshLogs);
+      queryFilter.addEventListener('input', refreshLogs);
+      maxLines.addEventListener('change', refreshLogs);
+
+      refreshLogs();
+      setInterval(refreshLogs, 5000);
+    })();
+  </script>
 {% endblock %}

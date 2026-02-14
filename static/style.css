@@ -1,15 +1,30 @@
+:root {
+  --bg: #eef2ff;
+  --card-bg: #ffffff;
+  --text: #111827;
+  --subtle: #4b5563;
+  --primary: #4f46e5;
+  --primary-strong: #3730a3;
+  --border: #e5e7eb;
+}
+
 body {
-  font-family: Arial, sans-serif;
+  font-family: Inter, Arial, sans-serif;
   margin: 0 auto;
-  max-width: 800px;
-  padding: 1rem;
-  background: #f5f5f5;
+  max-width: 980px;
+  padding: 1.25rem;
+  background: linear-gradient(135deg, var(--bg), #f9fafb);
+  color: var(--text);
 }
 header {
   margin-bottom: 1rem;
 }
+header a {
+  color: var(--primary-strong);
+  text-decoration: none;
+}
 .lead {
-  color: #333;
+  color: var(--subtle);
   line-height: 1.5;
 }
 .tool-list {
@@ -20,17 +35,24 @@ header {
   margin-bottom: 0.5rem;
 }
 .card {
-  background: #fff;
-  border-radius: 8px;
+  background: var(--card-bg);
+  border-radius: 12px;
   padding: 1rem 1.25rem;
   margin-bottom: 1rem;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 6px 24px rgba(17, 24, 39, 0.08);
+}
+.card-soft {
+  border: 1px solid rgba(79, 70, 229, 0.12);
 }
 .card-header {
   margin-bottom: 0.75rem;
 }
 .card-header h3 {
   margin: 0 0 0.25rem 0;
+}
+.card-header p {
+  margin: 0;
+  color: var(--subtle);
 }
 .stack {
   display: flex;
@@ -49,32 +71,33 @@ header {
   flex-direction: column;
   gap: 0.35rem;
   font-weight: 600;
-  color: #222;
+  color: #1f2937;
 }
 input[type="text"],
 input[type="number"],
 textarea,
 select {
-  padding: 0.5rem;
-  border: 1px solid #ccc;
-  border-radius: 4px;
+  padding: 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
   font-size: 0.95rem;
   font-family: inherit;
+  background: #fff;
 }
 textarea {
   resize: vertical;
 }
 button {
   align-self: flex-start;
-  background: #0069d9;
+  background: var(--primary);
   color: #fff;
   border: none;
-  border-radius: 4px;
-  padding: 0.5rem 0.9rem;
+  border-radius: 8px;
+  padding: 0.55rem 0.95rem;
   cursor: pointer;
 }
 button:hover {
-  background: #0052ab;
+  background: var(--primary-strong);
 }
 .actions {
   display: flex;
@@ -94,29 +117,57 @@ button:hover {
   margin: 0.5rem 0 0 1rem;
 }
 .options {
-  border: 1px solid #ddd;
-  border-radius: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
   padding: 0.75rem 0.75rem 0.25rem;
 }
 .options legend {
   font-weight: 700;
 }
 .help-text {
-  color: #555;
+  color: var(--subtle);
   margin: 0;
+}
+.checkbox-inline {
+  display: flex;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 0.6rem;
+  font-weight: 500;
 }
 .flashes {
   list-style: none;
   padding: 0;
 }
 .flashes li {
-  padding: 0.5rem;
+  padding: 0.65rem 0.75rem;
   margin-bottom: 0.5rem;
-  border-radius: 4px;
+  border-radius: 8px;
 }
 .flashes li.success {
-  background: #d4edda;
+  background: #d1fae5;
 }
 .flashes li.error {
-  background: #f8d7da;
+  background: #fee2e2;
+}
+.logs-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+.logs-filters {
+  margin-bottom: 0.75rem;
+}
+.logs-output {
+  margin: 0;
+  background: #0b1020;
+  color: #d1d5db;
+  border-radius: 8px;
+  border: 1px solid #1f2937;
+  padding: 0.85rem;
+  max-height: 420px;
+  overflow: auto;
+  font-size: 0.86rem;
+  line-height: 1.4;
 }
