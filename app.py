@@ -54,21 +54,22 @@ def save_hunyuan_settings(settings: Dict[str, str]) -> None:
 
 def load_lyrics_settings() -> Dict[str, str]:
     defaults = {
-        'root_path': str(Path.home()),
-        'workers': '12',
+        'root_path': r'D:\Music',
+        'workers': '50',
         'max_inflight': '0',
         'min_delay': '0.0',
         'timeout': '20.0',
-        'retries': '3',
+        'retries': '2',
         'backoff': '1.25',
         'status_every': '5.0',
-        'cache_flush_every': '200',
+        'cache_flush_every': '5000',
         'max_files': '0',
         'ai_rounds': '2',
-        'ai_model': 'gpt-4.1-mini',
+        'ai_model': 'gpt-5-mini-2025-08-07',
         'exts': '.mp3,.flac,.m4a,.mp4,.aac,.ogg,.opus',
-        'log_level': 'INFO',
-        'log_file': '',
+        'log_level': 'DEBUG',
+        'log_file': str(SCRIPTS_DIR / 'lyrics_embedder.log'),
+        'ai_if_failed': '1',
     }
     if LYRICS_CONFIG.exists():
         try:
@@ -364,9 +365,10 @@ def lyrics_embedder_save_settings():
     fields = [
         'root_path', 'workers', 'max_inflight', 'min_delay', 'timeout', 'retries',
         'backoff', 'status_every', 'cache_flush_every', 'max_files', 'ai_rounds',
-        'ai_model', 'exts', 'log_level', 'log_file',
+        'ai_model', 'exts', 'log_level', 'log_file', 'ai_if_failed',
     ]
     settings = {field: request.form.get(field, '').strip() for field in fields}
+    settings['ai_if_failed'] = '1' if request.form.get('ai_if_failed') else '0'
     save_lyrics_settings(settings)
     flash('Lyrics embedder settings saved.', 'success')
     return redirect(url_for('lyrics_embedder'))
@@ -402,7 +404,8 @@ def lyrics_embedder_run():
         command.append('--force')
     if request.form.get('keep_synced'):
         command.append('--keep-synced')
-    if request.form.get('ai_if_failed'):
+    ai_if_failed = request.form.get('ai_if_failed', settings.get('ai_if_failed', '1'))
+    if ai_if_failed and ai_if_failed != '0':
         command.append('--ai-if-failed')
 
     try:
@@ -411,6 +414,34 @@ def lyrics_embedder_run():
     except Exception as exc:  # pragma: no cover - environment specific
         flash(f"Unable to start lyrics embedder: {exc}", 'error')
     return redirect(url_for('lyrics_embedder'))
+
+
+@app.get('/lyrics-embedder/logs')
+def lyrics_embedder_logs():
+    settings = load_lyrics_settings()
+    configured = request.args.get('log_file', settings.get('log_file', '')).strip()
+    level_filter = request.args.get('level', '').strip().upper()
+    query = request.args.get('q', '').strip().lower()
+    raw_max_lines = request.args.get('max_lines', '300').strip()
+    try:
+        max_lines = int(raw_max_lines)
+    except ValueError:
+        max_lines = 300
+    max_lines = min(max(max_lines, 1), 2000)
+    log_path = Path(configured).expanduser() if configured else SCRIPTS_DIR / 'lyrics_embedder.log'
+
+    if not log_path.exists():
+        return {'ok': False, 'log_path': str(log_path), 'lines': [], 'message': 'Log file does not exist yet.'}
+
+    with open(log_path, encoding='utf-8', errors='replace') as log_file:
+        lines = log_file.readlines()[-max_lines:]
+
+    if level_filter:
+        lines = [line for line in lines if f' {level_filter} ' in line or line.startswith(level_filter)]
+    if query:
+        lines = [line for line in lines if query in line.lower()]
+
+    return {'ok': True, 'log_path': str(log_path), 'lines': [line.rstrip('\n') for line in lines]}
 
 
 if __name__ == '__main__':
