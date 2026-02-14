@@ -133,6 +133,19 @@
     </form>
   </section>
 
+
+  <section class="card card-soft">
+    <div class="card-header logs-head">
+      <div>
+        <h3>AI connectivity check</h3>
+        <p>Send a small request to the configured model and show either the response or a detailed error.</p>
+      </div>
+      <button type="button" id="ai-ping-btn">AI PING</button>
+    </div>
+    <p class="help-text">Uses model <code id="ai-ping-model">{{ settings['ai_model'] }}</code> and requires <code>OPENAI_API_KEY</code>.</p>
+    <pre id="ai-ping-output" class="logs-output">Click AI PING to test the OpenAI request path.</pre>
+  </section>
+
   <section class="card card-soft">
     <div class="card-header logs-head">
       <div>
@@ -168,11 +181,44 @@
   <script>
     (function () {
       const refreshBtn = document.getElementById('refresh-logs');
+      const aiPingBtn = document.getElementById('ai-ping-btn');
+      const aiPingOutput = document.getElementById('ai-ping-output');
+      const aiPingModel = document.getElementById('ai-ping-model');
       const logsOutput = document.getElementById('logs-output');
       const logPath = document.getElementById('log-path');
       const levelFilter = document.getElementById('log-level-filter');
       const queryFilter = document.getElementById('log-query-filter');
       const maxLines = document.getElementById('log-max-lines');
+
+
+      async function pingAiService() {
+        const model = {{ settings['ai_model']|tojson }};
+        aiPingOutput.textContent = 'Pinging AI service...';
+        aiPingModel.textContent = model || 'N/A';
+        try {
+          const formData = new FormData();
+          formData.set('ai_model', model || '');
+          const response = await fetch('{{ url_for('lyrics_embedder_ai_ping') }}', {
+            method: 'POST',
+            body: formData,
+          });
+          const payload = await response.json();
+          if (payload.ok) {
+            aiPingOutput.textContent = `✅ Model: ${payload.model}\n\n${payload.response}`;
+            return;
+          }
+          const details = [
+            `❌ Model: ${payload.model || model || 'unknown'}`,
+            `Error: ${payload.error || 'Unknown error'}`,
+          ];
+          if (payload.raw_response) {
+            details.push('', `Raw response: ${payload.raw_response}`);
+          }
+          aiPingOutput.textContent = details.join('\n');
+        } catch (error) {
+          aiPingOutput.textContent = `❌ Request failed before response parsing: ${error}`;
+        }
+      }
 
       async function refreshLogs() {
         const params = new URLSearchParams({
@@ -197,6 +243,7 @@
       }
 
       refreshBtn.addEventListener('click', refreshLogs);
+      aiPingBtn.addEventListener('click', pingAiService);
       levelFilter.addEventListener('change', refreshLogs);
       queryFilter.addEventListener('input', refreshLogs);
       maxLines.addEventListener('change', refreshLogs);
