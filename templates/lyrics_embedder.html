@@ -70,6 +70,10 @@
           <span>AI model</span>
           <input type="text" name="ai_model" value="{{ settings['ai_model'] }}">
         </label>
+        <label>
+          <span>AI log file path</span>
+          <input type="text" name="ai_log_file" value="{{ settings.get('ai_log_file', '') }}">
+        </label>
       </div>
 
       <div class="form-grid">
@@ -118,6 +122,7 @@
       <input type="hidden" name="max_files" value="{{ settings['max_files'] }}">
       <input type="hidden" name="ai_rounds" value="{{ settings['ai_rounds'] }}">
       <input type="hidden" name="ai_model" value="{{ settings['ai_model'] }}">
+      <input type="hidden" name="ai_log_file" value="{{ settings.get('ai_log_file', '') }}">
       <input type="hidden" name="exts" value="{{ settings['exts'] }}">
       <input type="hidden" name="log_level" value="{{ settings['log_level'] }}">
       <input type="hidden" name="log_file" value="{{ settings['log_file'] }}">
