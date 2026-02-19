@@ -1,0 +1,250 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card csv-editor">
+  <div class="card-header">
+    <h2>CSV Editor</h2>
+    <p>Import with delimiter auto-detect + manual options, preview instantly, then export with a different CSV format.</p>
+  </div>
+
+  <div class="stack">
+    <label>
+      CSV file
+      <input id="csv-file" type="file" accept=".csv,text/csv,.txt" />
+    </label>
+
+    <fieldset class="options">
+      <legend>Import separators</legend>
+      <label class="checkbox-inline">
+        <input id="auto-detect" type="checkbox" checked />
+        Auto detect separators
+      </label>
+      <div class="form-grid">
+        <label>
+          Delimiter
+          <select id="import-delimiter">
+            <option value=",">Comma (,)</option>
+            <option value=";">Semicolon (;)</option>
+            <option value="\t">Tab (\t)</option>
+            <option value="|">Pipe (|)</option>
+            <option value=":">Colon (:)</option>
+          </select>
+        </label>
+        <label>
+          Quote character
+          <select id="import-quote">
+            <option value='"'>Double quote (")</option>
+            <option value="'">Single quote (')</option>
+            <option value="">None</option>
+          </select>
+        </label>
+      </div>
+    </fieldset>
+
+    <p class="status" id="detect-result">No file loaded yet.</p>
+    <div class="preview-wrap">
+      <table id="preview-table" class="preview-table"></table>
+    </div>
+
+    <div class="actions">
+      <button id="import-btn" type="button" disabled>Confirm Import</button>
+      <span id="import-status" class="help-text">Waiting for preview...</span>
+    </div>
+  </div>
+</section>
+
+<section class="card csv-editor">
+  <div class="card-header">
+    <h3>Export options</h3>
+    <p>Choose output formatting and download as a new CSV file.</p>
+  </div>
+  <div class="form-grid">
+    <label>
+      Delimiter
+      <select id="export-delimiter">
+        <option value=",">Comma (,)</option>
+        <option value=";">Semicolon (;)</option>
+        <option value="\t">Tab (\t)</option>
+        <option value="|">Pipe (|)</option>
+        <option value=":">Colon (:)</option>
+      </select>
+    </label>
+    <label>
+      Quote character
+      <select id="export-quote">
+        <option value='"'>Double quote (")</option>
+        <option value="'">Single quote (')</option>
+        <option value="">None</option>
+      </select>
+    </label>
+    <label class="checkbox-inline">
+      <input id="export-header" type="checkbox" checked />
+      Include header row
+    </label>
+  </div>
+  <div class="actions">
+    <button id="export-btn" type="button" disabled>Export CSV</button>
+  </div>
+</section>
+
+<script>
+(() => {
+  const fileInput = document.getElementById('csv-file');
+  const autoDetectEl = document.getElementById('auto-detect');
+  const importDelimiterEl = document.getElementById('import-delimiter');
+  const importQuoteEl = document.getElementById('import-quote');
+  const detectResult = document.getElementById('detect-result');
+  const previewTable = document.getElementById('preview-table');
+  const importBtn = document.getElementById('import-btn');
+  const importStatus = document.getElementById('import-status');
+  const exportDelimiterEl = document.getElementById('export-delimiter');
+  const exportQuoteEl = document.getElementById('export-quote');
+  const exportHeaderEl = document.getElementById('export-header');
+  const exportBtn = document.getElementById('export-btn');
+
+  const DELIMITERS = [',', ';', '\t', '|', ':'];
+  const PREVIEW_ROWS = 12;
+
+  let rawText = '';
+  let parsedRows = [];
+  let importedRows = null;
+
+  const niceChar = (value) => value === '\t' ? 'tab (\\t)' : value || '(none)';
+
+  function splitCsvLine(line, delimiter, quote) {
+    if (!quote) return line.split(delimiter);
+    const out = [];
+    let cell = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      const next = line[i + 1];
+      if (ch === quote) {
+        if (inQuotes && next === quote) {
+          cell += quote;
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (ch === delimiter && !inQuotes) {
+        out.push(cell);
+        cell = '';
+      } else {
+        cell += ch;
+      }
+    }
+    out.push(cell);
+    return out;
+  }
+
+  function parseCsv(text, delimiter, quote) {
+    return text
+      .split(/\r?\n/)
+      .filter((line) => line.length > 0)
+      .map((line) => splitCsvLine(line, delimiter, quote));
+  }
+
+  function scoreDelimiter(text, delimiter) {
+    const sample = text.split(/\r?\n/).slice(0, 20).filter(Boolean);
+    if (!sample.length) return 0;
+    let score = 0;
+    let prevCols = 0;
+    for (const line of sample) {
+      const cols = line.split(delimiter).length;
+      if (cols > 1) score += cols;
+      if (prevCols && cols === prevCols) score += 2;
+      prevCols = cols;
+    }
+    return score;
+  }
+
+  function detectDelimiter(text) {
+    let best = ',';
+    let bestScore = -1;
+    for (const delim of DELIMITERS) {
+      const score = scoreDelimiter(text, delim);
+      if (score > bestScore) {
+        bestScore = score;
+        best = delim;
+      }
+    }
+    return best;
+  }
+
+  function escapeForCsv(value, delimiter, quote) {
+    const text = value == null ? '' : String(value);
+    if (!quote) return text;
+    const needsQuote = text.includes(delimiter) || text.includes('\n') || text.includes(quote);
+    const escaped = text.replaceAll(quote, quote + quote);
+    return needsQuote ? `${quote}${escaped}${quote}` : escaped;
+  }
+
+  function renderPreview(rows) {
+    previewTable.innerHTML = '';
+    if (!rows.length) return;
+    const limited = rows.slice(0, PREVIEW_ROWS);
+    limited.forEach((row, rowIndex) => {
+      const tr = document.createElement('tr');
+      row.forEach((value) => {
+        const cell = document.createElement(rowIndex === 0 ? 'th' : 'td');
+        cell.textContent = value;
+        tr.appendChild(cell);
+      });
+      previewTable.appendChild(tr);
+    });
+  }
+
+  function refreshPreview() {
+    if (!rawText) return;
+    const delimiter = autoDetectEl.checked ? detectDelimiter(rawText) : importDelimiterEl.value;
+    const quote = importQuoteEl.value;
+    if (autoDetectEl.checked) importDelimiterEl.value = delimiter;
+    parsedRows = parseCsv(rawText, delimiter, quote);
+    detectResult.textContent = `Detected/import delimiter: ${niceChar(delimiter)} · Quote: ${niceChar(quote)} · Rows: ${parsedRows.length}`;
+    renderPreview(parsedRows);
+    importBtn.disabled = parsedRows.length === 0;
+  }
+
+  fileInput.addEventListener('change', async () => {
+    const [file] = fileInput.files;
+    if (!file) return;
+    rawText = await file.text();
+    importStatus.textContent = 'Preview generated. Confirm import to enable export.';
+    refreshPreview();
+  });
+
+  autoDetectEl.addEventListener('change', () => {
+    importDelimiterEl.disabled = autoDetectEl.checked;
+    refreshPreview();
+  });
+
+  importDelimiterEl.addEventListener('change', refreshPreview);
+  importQuoteEl.addEventListener('change', refreshPreview);
+
+  importBtn.addEventListener('click', () => {
+    importedRows = parsedRows.map((row) => [...row]);
+    importStatus.textContent = `Imported ${importedRows.length} rows. Ready to export.`;
+    exportBtn.disabled = importedRows.length === 0;
+  });
+
+  exportBtn.addEventListener('click', () => {
+    if (!importedRows || !importedRows.length) return;
+    const delimiter = exportDelimiterEl.value;
+    const quote = exportQuoteEl.value;
+    let rows = importedRows;
+    if (!exportHeaderEl.checked && rows.length > 1) {
+      rows = rows.slice(1);
+    }
+    const output = rows.map((row) => row.map((cell) => escapeForCsv(cell, delimiter, quote)).join(delimiter)).join('\n');
+    const blob = new Blob([output], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'converted.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  importDelimiterEl.disabled = autoDetectEl.checked;
+})();
+</script>
+{% endblock %}

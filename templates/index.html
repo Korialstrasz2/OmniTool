@@ -1,13 +1,21 @@
 {% extends 'base.html' %}
 {% block content %}
-  <h2>Tools</h2>
-  {% if tools %}
-    <ul class="tool-list">
-      {% for tool in tools %}
-        <li><a href="{{ url_for('tool_detail', tool_id=tool['id']) }}">{{ tool['name'] }}</a> - {{ tool['description'] }}</li>
-      {% endfor %}
-    </ul>
-  {% else %}
-    <p>No tools configured yet. Add entries to <code>tools.json</code>.</p>
-  {% endif %}
+<section class="hero card">
+  <h2>Toolbox</h2>
+  <p class="lead">Launch and manage your utilities from one place. Pick a tool below to open it.</p>
+</section>
+
+{% if tools %}
+  <section class="tool-grid">
+    {% for tool in tools %}
+      <article class="tool-card">
+        <h3><a href="{{ url_for('tool_detail', tool_id=tool['id']) }}">{{ tool['name'] }}</a></h3>
+        <p>{{ tool['description'] }}</p>
+        <a class="tool-link" href="{{ url_for('tool_detail', tool_id=tool['id']) }}">Open tool →</a>
+      </article>
+    {% endfor %}
+  </section>
+{% else %}
+  <p>No tools configured yet. Add entries to <code>tools.json</code>.</p>
+{% endif %}
 {% endblock %}

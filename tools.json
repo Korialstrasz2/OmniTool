@@ -52,5 +52,11 @@
     "name": "Lyrics Embedder Manager",
     "description": "Embed lyrics into audio tags with provider fallbacks and optional AI metadata recovery.",
     "command": ""
+  },
+  {
+    "id": "csv-editor",
+    "name": "CSV Editor",
+    "description": "Import CSV files with delimiter detection and export with custom formatting options.",
+    "command": ""
   }
 ]
