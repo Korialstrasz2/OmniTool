@@ -193,7 +193,15 @@ def tool_detail(tool_id):
         return redirect(url_for('hunyuan3d'))
     if tool_id == 'lyrics-embedder-manager':
         return redirect(url_for('lyrics_embedder'))
+    if tool_id == 'csv-editor':
+        return redirect(url_for('csv_editor'))
     return render_template('tool.html', tool=tool)
+
+
+@app.route('/csv-editor')
+def csv_editor():
+    """CSV import/export formatter with delimiter controls and previews."""
+    return render_template('csv_editor.html')
 
 
 @app.route('/tool/<tool_id>/run', methods=['POST'])
