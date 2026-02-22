@@ -247,3 +247,17 @@ button:hover {
 .preview-table th {
   background: #f8faff;
 }
+
+.media-harvester .preview-table td,
+.media-harvester .preview-table th {
+  vertical-align: top;
+  font-size: 0.86rem;
+}
+
+.media-harvester .preview-wrap {
+  max-height: 380px;
+}
+
+.media-harvester .logs-output {
+  max-height: 320px;
+}
