@@ -18,6 +18,7 @@ HUNYUAN_DEFAULT_REPO = SCRIPTS_DIR / 'hunyuan3d-2.1'
 HUNYUAN_CONFIG = SCRIPTS_DIR / 'hunyuan3d_config.json'
 HUNYUAN_REPO_URL = 'https://github.com/tencent-hunyuan/hunyuan3d-2.1.git'
 LYRICS_CONFIG = SCRIPTS_DIR / 'lyrics_embedder_config.json'
+MEDIA_HARVESTER_SCRIPT = SCRIPTS_DIR / 'media_harvester.py'
 
 try:
     from openai import OpenAI
@@ -195,7 +196,79 @@ def tool_detail(tool_id):
         return redirect(url_for('lyrics_embedder'))
     if tool_id == 'csv-editor':
         return redirect(url_for('csv_editor'))
+    if tool_id == 'media-harvester-manager':
+        return redirect(url_for('media_harvester'))
     return render_template('tool.html', tool=tool)
+
+
+
+
+@app.route('/media-harvester', methods=['GET', 'POST'])
+def media_harvester():
+    """Media discovery/downloader with preview and privacy controls."""
+    output = ''
+    values = {
+        'url': '',
+        'output_dir': str(SCRIPTS_DIR / 'media_downloads'),
+        'proxy': '',
+        'timeout': '45',
+        'workers': '6',
+        'preview_only': '1',
+        'include_page_with_ytdlp': '',
+        'auto_install': '',
+    }
+
+    if request.method == 'POST':
+        values.update({
+            'url': request.form.get('url', '').strip(),
+            'output_dir': request.form.get('output_dir', values['output_dir']).strip(),
+            'proxy': request.form.get('proxy', '').strip(),
+            'timeout': request.form.get('timeout', '45').strip() or '45',
+            'workers': request.form.get('workers', '6').strip() or '6',
+            'preview_only': '1' if request.form.get('preview_only') else '',
+            'include_page_with_ytdlp': '1' if request.form.get('include_page_with_ytdlp') else '',
+            'auto_install': '1' if request.form.get('auto_install') else '',
+        })
+
+        if not values['url']:
+            flash('Please enter a target URL.', 'error')
+        else:
+            command = [
+                sys.executable,
+                str(MEDIA_HARVESTER_SCRIPT),
+                values['url'],
+                '--output', values['output_dir'],
+                '--timeout', values['timeout'],
+                '--workers', values['workers'],
+            ]
+            if values['proxy']:
+                command.extend(['--proxy', values['proxy']])
+            if values['preview_only']:
+                command.append('--preview-only')
+            if values['include_page_with_ytdlp']:
+                command.append('--include-page-with-ytdlp')
+            if values['auto_install']:
+                command.append('--auto-install')
+
+            try:
+                completed = subprocess.run(
+                    command,
+                    cwd=str(SCRIPTS_DIR),
+                    capture_output=True,
+                    text=True,
+                    timeout=60 * 30,
+                )
+                output = (completed.stdout or '') + ('\n' + completed.stderr if completed.stderr else '')
+                if completed.returncode == 0:
+                    flash('Media Harvester completed.', 'success')
+                else:
+                    flash(f'Media Harvester exited with code {completed.returncode}.', 'error')
+            except subprocess.TimeoutExpired:
+                flash('Media Harvester timed out after 30 minutes.', 'error')
+            except Exception as exc:  # pragma: no cover
+                flash(f'Failed to run Media Harvester: {exc}', 'error')
+
+    return render_template('media_harvester.html', values=values, output=output)
 
 
 @app.route('/csv-editor')
