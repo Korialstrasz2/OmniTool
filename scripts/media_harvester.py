@@ -244,6 +244,50 @@ def auto_install_dependencies() -> dict[str, bool]:
     return results
 
 
+def auto_install_yt_dlp_impersonation() -> bool:
+    """Install yt-dlp impersonation extras when Cloudflare/challenge pages block requests."""
+    commands = [
+        [sys.executable, "-m", "pip", "install", "--upgrade", "yt-dlp[curl-cffi]"],
+        [sys.executable, "-m", "pip", "install", "--upgrade", "--user", "yt-dlp[curl-cffi]"],
+    ]
+    for cmd in commands:
+        try:
+            completed = subprocess.run(cmd, capture_output=True, text=True)
+            if completed.returncode == 0:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def list_impersonate_targets() -> list[str]:
+    """Return yt-dlp impersonation targets available in this runtime."""
+    cmd_prefix = yt_dlp_command()
+    if not cmd_prefix:
+        return []
+    try:
+        completed = subprocess.run(
+            cmd_prefix + ["--list-impersonate-targets"],
+            capture_output=True,
+            text=True,
+            timeout=25,
+        )
+    except Exception:
+        return []
+    if completed.returncode != 0:
+        return []
+    targets: list[str] = []
+    for line in completed.stdout.splitlines():
+        parts = line.strip().split()
+        if not parts:
+            continue
+        token = parts[0].strip().strip(",")
+        if token and token.lower() not in {"available", "targets", "impersonate"}:
+            targets.append(token)
+    # Keep stable order while deduplicating.
+    return list(dict.fromkeys(targets))
+
+
 def build_session(proxy: str | None, timeout: float) -> requests.Session:
     session = requests.Session()
     session.headers.update({"User-Agent": USER_AGENT})
@@ -433,6 +477,8 @@ def run_yt_dlp_with_strategies(
     timeout: float,
     proxy: str | None,
     access_strategy: str,
+    impersonation_targets: list[str] | None = None,
+    allow_auto_install: bool = True,
 ) -> tuple[bool, str]:
     """Run yt-dlp with progressive, authorized-access strategies.
 
@@ -461,18 +507,25 @@ def run_yt_dlp_with_strategies(
     if proxy:
         base_cmd.extend(["--proxy", proxy])
 
-    strategies: list[tuple[str, list[str]]]
+    if impersonation_targets is None:
+        impersonation_targets = list_impersonate_targets()
+
+    strategies: list[tuple[str, list[str]]] = [("default", [])]
     if access_strategy == "resilient":
-        strategies = [
-            ("default", []),
-            ("impersonate-chrome", ["--impersonate", "chrome"]),
-            (
-                "network-retry",
-                ["--impersonate", "chrome", "--retries", "12", "--retry-sleep", "exp=1:16"],
-            ),
-        ]
-    else:
-        strategies = [("default", [])]
+        preferred_targets = ["chrome", "edge", "safari", "firefox"]
+        available_targets = [target for target in preferred_targets if target in impersonation_targets]
+        if not available_targets and impersonation_targets:
+            available_targets = impersonation_targets[:1]
+        for target in available_targets:
+            strategies.append((f"impersonate-{target}", ["--impersonate", target]))
+            strategies.append(
+                (
+                    f"network-retry-{target}",
+                    ["--impersonate", target, "--retries", "12", "--retry-sleep", "exp=1:16"],
+                )
+            )
+        if not available_targets:
+            strategies.append(("network-retry", ["--retries", "12", "--retry-sleep", "exp=1:16"]))
 
     failures: list[str] = []
     for label, extra in strategies:
@@ -481,27 +534,84 @@ def run_yt_dlp_with_strategies(
             completed = subprocess.run(cmd, capture_output=True, text=True, timeout=max(timeout, 180))
             if completed.returncode == 0:
                 return True, f"yt-dlp success via {label} strategy"
-            err = (completed.stderr or completed.stdout).strip().splitlines()[-1:] or ["unknown error"]
+            error_text = (completed.stderr or completed.stdout).strip()
+            err = error_text.splitlines()[-1:] or ["unknown error"]
             failures.append(f"{label}: {err[0]}")
         except subprocess.TimeoutExpired:
             failures.append(f"{label}: timeout")
 
-    return False, " | ".join(failures)[-320:]
+    combined_failure = " | ".join(failures)
+    if (
+        allow_auto_install
+        and access_strategy == "resilient"
+        and needs_impersonation_dependency(combined_failure)
+    ):
+        if auto_install_yt_dlp_impersonation():
+            refreshed_targets = list_impersonate_targets()
+            return run_yt_dlp_with_strategies(
+                url,
+                out_dir,
+                timeout,
+                proxy,
+                "resilient",
+                impersonation_targets=refreshed_targets,
+                allow_auto_install=False,
+            )
+    return False, combined_failure[-320:]
 
 
-def run_yt_dlp_all_resolutions(url: str, out_dir: Path, timeout: float, proxy: str | None) -> tuple[int, int, list[str]]:
+
+
+def needs_impersonation_dependency(error_text: str) -> bool:
+    lower = error_text.lower()
+    return (
+        "--list-impersonate-targets" in lower
+        or "cloudflare anti-bot challenge" in lower
+        or "install the required impersonation dependency" in lower
+        or "impersonate target" in lower
+    )
+
+
+def run_yt_dlp_all_resolutions(
+    url: str,
+    out_dir: Path,
+    timeout: float,
+    proxy: str | None,
+    access_strategy: str,
+) -> tuple[int, int, list[str]]:
     """Download every available video resolution by enumerating yt-dlp formats."""
     cmd_prefix = yt_dlp_command()
     if not cmd_prefix:
         return 0, 0, ["yt-dlp not installed"]
 
-    list_cmd = cmd_prefix + ["--list-formats", url]
+    impersonation_targets = list_impersonate_targets() if access_strategy == "resilient" else []
+    impersonation_args: list[str] = []
+    if impersonation_targets:
+        impersonation_args = ["--impersonate", impersonation_targets[0]]
+
+    list_cmd = cmd_prefix + ["--list-formats"] + impersonation_args + [url]
     if proxy:
         list_cmd.extend(["--proxy", proxy])
 
     listed = subprocess.run(list_cmd, capture_output=True, text=True, timeout=max(timeout, 60))
     if listed.returncode != 0:
-        return 0, 1, [f"format listing failed: {(listed.stderr or listed.stdout).strip()[-300:]}"]
+        listing_error = (listed.stderr or listed.stdout).strip()
+        if (
+            access_strategy == "resilient"
+            and needs_impersonation_dependency(listing_error)
+            and auto_install_yt_dlp_impersonation()
+        ):
+            impersonation_targets = list_impersonate_targets()
+            if impersonation_targets:
+                impersonation_args = ["--impersonate", impersonation_targets[0]]
+                list_cmd = cmd_prefix + ["--list-formats"] + impersonation_args + [url]
+                if proxy:
+                    list_cmd.extend(["--proxy", proxy])
+                listed = subprocess.run(list_cmd, capture_output=True, text=True, timeout=max(timeout, 60))
+                if listed.returncode != 0:
+                    listing_error = (listed.stderr or listed.stdout).strip()
+        if listed.returncode != 0:
+            return 0, 1, [f"format listing failed: {listing_error[-300:]}"]
 
     lines = listed.stdout.splitlines()
     pattern = re.compile(r"^\s*(\S+)\s+\S+\s+(\d+x\d+|audio only)")
@@ -523,7 +633,7 @@ def run_yt_dlp_all_resolutions(url: str, out_dir: Path, timeout: float, proxy: s
     failed = 0
     for resolution, fmt_id in sorted(selected_formats.items()):
         output_template = str(out_dir / f"%(title).120s_%(id)s_{resolution}.%(ext)s")
-        cmd = cmd_prefix + [
+        cmd = cmd_prefix + impersonation_args + [
             "--no-overwrites",
             "--restrict-filenames",
             "--write-info-json",
@@ -734,7 +844,7 @@ def main() -> int:
             print(f"[FAIL] page-url -> {msg}")
 
     if args.download_all_resolutions:
-        res_ok, res_fail, debug_lines = run_yt_dlp_all_resolutions(args.url, out_dir, max(args.timeout * 2, 120), args.proxy)
+        res_ok, res_fail, debug_lines = run_yt_dlp_all_resolutions(args.url, out_dir, max(args.timeout * 2, 120), args.proxy, args.access_strategy)
         success_count += res_ok
         failure_count += res_fail
         for line in debug_lines:
