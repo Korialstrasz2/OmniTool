@@ -8,3 +8,4 @@ uvicorn[standard]>=0.28
 requests>=2.31
 mutagen>=1.47
 openai>=1.51
+beautifulsoup4>=4.12
