@@ -9,6 +9,7 @@
 
 <section class="card card-soft media-harvester-page">
   <form method="post" class="stack">
+    <input type="hidden" name="workflow" value="active">
     <label>
       Target URL
       <input type="text" name="url" value="{{ values.url }}" placeholder="https://example.com/page">
@@ -113,6 +114,72 @@ https://example.com/page-two">{{ values.urls_text }}</textarea>
     </form>
   </div>
   <p class="help-text">This tool supports public or authorized content access only; it does not bypass paywalls, account gates, or age checks. Resilient mode only increases retries and compatible client behaviors for legitimate access.</p>
+</section>
+
+
+
+<section class="card card-soft media-harvester-page">
+  <div class="card-header">
+    <h3>Passive stream capture (experimental)</h3>
+    <p class="help-text">Use this when a site only reveals stream URLs during playback. Slow mode captures passively while the video plays; fast mode tries to fetch the full stream from intercepted URLs as soon as candidates appear.</p>
+  </div>
+
+  <ol class="help-list">
+    <li>Enter the page URL that contains the media player.</li>
+    <li>Choose mode: <strong>Slow</strong> (observe playback) or <strong>Fast</strong> (aggressive full fetch after interception).</li>
+    <li>Set capture window and idle timeout, then run capture.</li>
+    <li>Review output logs to see intercepted stream URLs and download results.</li>
+  </ol>
+
+  <form method="post" class="stack">
+    <input type="hidden" name="workflow" value="passive">
+    <div class="form-grid">
+      <label>
+        Player page URL
+        <input type="text" name="passive_page_url" value="{{ values.passive_page_url }}" placeholder="https://example.com/watch">
+      </label>
+      <label>
+        Output folder
+        <input type="text" name="passive_output_dir" value="{{ values.passive_output_dir }}">
+      </label>
+      <label>
+        Passive mode
+        <select name="passive_mode">
+          <option value="slow" {% if values.passive_mode == 'slow' %}selected{% endif %}>Slow (playback mirroring)</option>
+          <option value="fast" {% if values.passive_mode == 'fast' %}selected{% endif %}>Fast (request full stream)</option>
+        </select>
+      </label>
+      <label>
+        Capture seconds
+        <input type="number" min="20" step="1" name="passive_capture_seconds" value="{{ values.passive_capture_seconds }}">
+      </label>
+      <label>
+        Idle stop seconds
+        <input type="number" min="3" step="1" name="passive_idle_seconds" value="{{ values.passive_idle_seconds }}">
+      </label>
+    </div>
+
+    <div class="form-grid">
+      <label>
+        Headless browser
+        <select name="passive_headless">
+          <option value="1" {% if values.passive_headless %}selected{% endif %}>Enabled</option>
+          <option value="" {% if not values.passive_headless %}selected{% endif %}>Disabled</option>
+        </select>
+      </label>
+      <label>
+        Auto-download captured streams
+        <select name="passive_auto_download">
+          <option value="1" {% if values.passive_auto_download %}selected{% endif %}>Enabled</option>
+          <option value="" {% if not values.passive_auto_download %}selected{% endif %}>Disabled</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="actions wrap-actions">
+      <button type="submit">Run Passive Capture</button>
+    </div>
+  </form>
 </section>
 
 {% if output %}
