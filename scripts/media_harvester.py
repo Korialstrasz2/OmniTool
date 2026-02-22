@@ -9,12 +9,14 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import html
+import importlib.util
 import mimetypes
 import os
 import re
 import shutil
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -63,10 +65,35 @@ def command_exists(name: str) -> bool:
     return shutil.which(name) is not None
 
 
+def yt_dlp_command() -> list[str] | None:
+    """Resolve an executable command for yt-dlp in this runtime.
+
+    Some environments install yt-dlp as a Python module without exposing a
+    `yt-dlp` binary on PATH, so we support both entrypoint and module modes.
+    """
+    binary = shutil.which("yt-dlp")
+    if binary:
+        return [binary]
+    if importlib.util.find_spec("yt_dlp"):
+        return [sys.executable, "-m", "yt_dlp"]
+    return None
+
+
+def yt_dlp_available() -> bool:
+    cmd = yt_dlp_command()
+    if not cmd:
+        return False
+    try:
+        probe = subprocess.run(cmd + ["--version"], capture_output=True, text=True, timeout=15)
+        return probe.returncode == 0
+    except Exception:
+        return False
+
+
 def run_launch_check(quiet: bool = False) -> bool:
     checks = {
         "python": True,
-        "yt-dlp": command_exists("yt-dlp"),
+        "yt-dlp": yt_dlp_available(),
         "ffmpeg": command_exists("ffmpeg"),
         "curl": command_exists("curl"),
     }
@@ -90,7 +117,15 @@ def auto_install_yt_dlp() -> bool:
             capture_output=True,
             text=True,
         )
-        return completed.returncode == 0
+        if completed.returncode == 0 and yt_dlp_available():
+            return True
+        # Fallback for restricted PATH systems.
+        user_install = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--upgrade", "--user", "yt-dlp"],
+            capture_output=True,
+            text=True,
+        )
+        return user_install.returncode == 0 and yt_dlp_available()
     except Exception:
         return False
 
@@ -109,6 +144,8 @@ def auto_install_dependencies() -> dict[str, bool]:
             results[package] = completed.returncode == 0
         except Exception:
             results[package] = False
+    # Verify yt-dlp can actually execute from this runtime, not just pip install success.
+    results["yt-dlp-runtime-check"] = yt_dlp_available()
     return results
 
 
@@ -216,16 +253,60 @@ def download_file(session: requests.Session, url: str, out_dir: Path, timeout: f
                         out.write(chunk)
         return True, f"saved {target.name}"
     except Exception as exc:
+        if command_exists("curl"):
+            curl_name = safe_filename_from_url(url, "downloaded_media")
+            curl_target = out_dir / curl_name
+            if not curl_target.suffix:
+                curl_target = curl_target.with_suffix(".bin")
+            curl_cmd = ["curl", "-L", "--fail", "--silent", "--show-error", "--output", str(curl_target), url]
+            try:
+                curl_completed = subprocess.run(curl_cmd, capture_output=True, text=True, timeout=max(timeout, 90))
+                if curl_completed.returncode == 0 and curl_target.exists() and curl_target.stat().st_size > 0:
+                    return True, f"saved {curl_target.name} (curl fallback)"
+                curl_err = (curl_completed.stderr or curl_completed.stdout).strip()[-180:]
+                return False, f"direct failed: {exc}; curl failed: {curl_err}"
+            except Exception as curl_exc:
+                return False, f"direct failed: {exc}; curl failed: {curl_exc}"
         return False, f"direct failed: {exc}"
 
 
+def run_ffmpeg_hls(url: str, out_dir: Path, timeout: float, proxy: str | None) -> tuple[bool, str]:
+    if not command_exists("ffmpeg"):
+        return False, "ffmpeg not installed"
+    target = out_dir / f"{safe_filename_from_url(url, 'stream')}.mp4"
+    if target.exists():
+        target = out_dir / f"{target.stem}_{int(time.time())}.mp4"
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-loglevel",
+        "error",
+        "-i",
+        url,
+        "-c",
+        "copy",
+        str(target),
+    ]
+    env = os.environ.copy()
+    if proxy:
+        env["http_proxy"] = proxy
+        env["https_proxy"] = proxy
+    try:
+        completed = subprocess.run(cmd, capture_output=True, text=True, timeout=max(timeout, 120), env=env)
+        if completed.returncode == 0 and target.exists() and target.stat().st_size > 0:
+            return True, f"saved {target.name} (ffmpeg hls fallback)"
+        return False, (completed.stderr or completed.stdout).strip()[-220:]
+    except subprocess.TimeoutExpired:
+        return False, "ffmpeg timeout"
+
+
 def run_yt_dlp(url: str, out_dir: Path, timeout: float, proxy: str | None) -> tuple[bool, str]:
-    if not command_exists("yt-dlp"):
+    cmd_prefix = yt_dlp_command()
+    if not cmd_prefix:
         return False, "yt-dlp not installed"
 
     output_template = str(out_dir / "%(title).120s_%(id)s.%(ext)s")
-    cmd = [
-        "yt-dlp",
+    cmd = cmd_prefix + [
         "--no-overwrites",
         "--no-playlist",
         "--restrict-filenames",
@@ -251,10 +332,11 @@ def run_yt_dlp(url: str, out_dir: Path, timeout: float, proxy: str | None) -> tu
 
 def run_yt_dlp_all_resolutions(url: str, out_dir: Path, timeout: float, proxy: str | None) -> tuple[int, int, list[str]]:
     """Download every available video resolution by enumerating yt-dlp formats."""
-    if not command_exists("yt-dlp"):
+    cmd_prefix = yt_dlp_command()
+    if not cmd_prefix:
         return 0, 0, ["yt-dlp not installed"]
 
-    list_cmd = ["yt-dlp", "--list-formats", url]
+    list_cmd = cmd_prefix + ["--list-formats", url]
     if proxy:
         list_cmd.extend(["--proxy", proxy])
 
@@ -282,8 +364,7 @@ def run_yt_dlp_all_resolutions(url: str, out_dir: Path, timeout: float, proxy: s
     failed = 0
     for resolution, fmt_id in sorted(selected_formats.items()):
         output_template = str(out_dir / f"%(title).120s_%(id)s_{resolution}.%(ext)s")
-        cmd = [
-            "yt-dlp",
+        cmd = cmd_prefix + [
             "--no-overwrites",
             "--restrict-filenames",
             "--write-info-json",
@@ -362,8 +443,13 @@ def main() -> int:
         print("Note: ffmpeg binary may still need OS package manager install.")
 
     if args.list_tools:
+        yt_cmd = yt_dlp_command()
         print("\n=== Tool checklist ===")
-        print("- yt-dlp  :", "OK" if command_exists("yt-dlp") else "MISSING")
+        print("- yt-dlp  :", "OK" if yt_dlp_available() else "MISSING")
+        if yt_cmd:
+            print("  resolver:", " ".join(yt_cmd))
+        print("  python  :", sys.executable)
+        print("  PATH    :", os.environ.get("PATH", ""))
         print("- ffmpeg  :", "OK" if command_exists("ffmpeg") else "MISSING")
         print("- curl    :", "OK" if command_exists("curl") else "MISSING")
         print("- python  : OK")
@@ -383,7 +469,7 @@ def main() -> int:
     anonymize_notice(args.proxy)
     if not args.skip_launch_check:
         all_ok = run_launch_check()
-        if not all_ok and args.auto_install and not command_exists("yt-dlp"):
+        if not all_ok and args.auto_install and not yt_dlp_available():
             print("Attempting auto-install of yt-dlp...")
             if auto_install_yt_dlp():
                 print("yt-dlp installed successfully.")
@@ -418,6 +504,10 @@ def main() -> int:
             ok, msg = run_yt_dlp(candidate.url, out_dir, args.timeout, args.proxy)
             if ok:
                 return candidate.url, True, msg
+            ff_ok, ff_msg = run_ffmpeg_hls(candidate.url, out_dir, args.timeout, args.proxy)
+            if ff_ok:
+                return candidate.url, True, ff_msg
+            return candidate.url, False, f"{msg}; ffmpeg: {ff_msg}"
 
         ok, msg = download_file(session, candidate.url, out_dir, args.timeout)
         if ok:
@@ -460,8 +550,9 @@ def main() -> int:
         print(f"Timeout        : {args.timeout}")
         print(f"Proxy          : {args.proxy or 'none'}")
         print(f"Candidates     : {len(candidates)}")
-        if command_exists("yt-dlp"):
-            probe = subprocess.run(["yt-dlp", "--list-formats", args.url], capture_output=True, text=True, timeout=max(args.timeout, 90))
+        cmd_prefix = yt_dlp_command()
+        if cmd_prefix:
+            probe = subprocess.run(cmd_prefix + ["--list-formats", args.url], capture_output=True, text=True, timeout=max(args.timeout, 90))
             print("Format probe rc:", probe.returncode)
             print((probe.stdout or probe.stderr)[-4000:])
 

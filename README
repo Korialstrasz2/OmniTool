@@ -68,8 +68,9 @@ Each tool automatically gets its own page with a "Run" button.
 OmniTool includes a **Media Harvester** page that can discover media URLs on a page, preview them, and download using fallback methods:
 
 - Direct HTTP download (images/audio/video/files)
-- `yt-dlp` fallback for complex providers
-- HLS (`.m3u8` / `.ts`) handling via `yt-dlp` + `ffmpeg` when available
+- `yt-dlp` fallback for complex providers (binary or `python -m yt_dlp` module mode)
+- HLS (`.m3u8` / `.ts`) handling via `yt-dlp`, with direct `ffmpeg` fallback when `yt-dlp` fails
+- Direct download fallback chain now includes `requests` -> `curl` for tougher endpoints
 
 Features include dependency launch checks, optional `yt-dlp` auto-install, parallel workers, proxy support, and preview-only mode.
 
