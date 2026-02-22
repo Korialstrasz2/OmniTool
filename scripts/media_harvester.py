@@ -538,16 +538,46 @@ def run_yt_dlp_with_strategies(
 
     strategies: list[tuple[str, list[str]]] = [("default", [])]
     if access_strategy == "resilient":
+        lower_to_target = {target.lower(): target for target in impersonation_targets}
         preferred_targets = ["chrome", "edge", "safari", "firefox"]
-        available_targets = [target for target in preferred_targets if target in impersonation_targets]
+        available_targets = [lower_to_target[target] for target in preferred_targets if target in lower_to_target]
         if not available_targets and impersonation_targets:
             available_targets = impersonation_targets[:1]
+
+        # Some challenge pages only work when routed through the generic extractor.
+        # Keep this as an explicit resilient fallback, not the default path.
+        strategies.append(("force-generic", ["--force-generic-extractor"]))
+        strategies.append(
+            (
+                "force-generic-impersonate",
+                ["--force-generic-extractor", "--extractor-args", "generic:impersonate"],
+            )
+        )
+
         for target in available_targets:
             strategies.append((f"impersonate-{target}", ["--impersonate", target]))
             strategies.append(
                 (
                     f"network-retry-{target}",
                     ["--impersonate", target, "--retries", "12", "--retry-sleep", "exp=1:16"],
+                )
+            )
+            strategies.append(
+                (
+                    f"force-generic-{target}",
+                    ["--force-generic-extractor", "--impersonate", target],
+                )
+            )
+            strategies.append(
+                (
+                    f"force-generic-impersonate-{target}",
+                    [
+                        "--force-generic-extractor",
+                        "--impersonate",
+                        target,
+                        "--extractor-args",
+                        "generic:impersonate",
+                    ],
                 )
             )
         if not available_targets:
