@@ -58,11 +58,5 @@
     "name": "CSV Editor",
     "description": "Import CSV files with delimiter detection and export with custom formatting options.",
     "command": ""
-  },
-  {
-    "id": "media-harvester",
-    "name": "Media Harvester (Preview + Fallback Download)",
-    "description": "Scan a page for images/video/audio/streams (.m3u8/.ts), preview items, and download with multi-engine fallbacks.",
-    "command": "python media_harvester.py --doctor"
   }
 ]
