@@ -19,6 +19,7 @@ HUNYUAN_CONFIG = SCRIPTS_DIR / 'hunyuan3d_config.json'
 HUNYUAN_REPO_URL = 'https://github.com/tencent-hunyuan/hunyuan3d-2.1.git'
 LYRICS_CONFIG = SCRIPTS_DIR / 'lyrics_embedder_config.json'
 MEDIA_HARVESTER_SCRIPT = SCRIPTS_DIR / 'media_harvester.py'
+MEDIA_PASSIVE_CAPTURE_SCRIPT = SCRIPTS_DIR / 'media_passive_capture.py'
 MEDIA_HARVESTER_DEFAULTS = SCRIPTS_DIR / 'media_harvester_defaults.json'
 
 try:
@@ -238,9 +239,69 @@ def media_harvester():
         'all_page': '1' if defaults.get('all_page', False) else '',
         'all_scroll': '1' if defaults.get('all_scroll', False) else '',
         'access_strategy': str(defaults.get('access_strategy', 'standard')),
+        'passive_page_url': str(defaults.get('passive_page_url', '')),
+        'passive_output_dir': str(defaults.get('passive_output_dir', SCRIPTS_DIR / 'media_downloads')),
+        'passive_mode': str(defaults.get('passive_mode', 'slow')),
+        'passive_capture_seconds': str(defaults.get('passive_capture_seconds', '90')),
+        'passive_idle_seconds': str(defaults.get('passive_idle_seconds', '12')),
+        'passive_headless': '1' if defaults.get('passive_headless', True) else '',
+        'passive_auto_download': '1' if defaults.get('passive_auto_download', True) else '',
     }
 
     if request.method == 'POST':
+        workflow = request.form.get('workflow', 'active').strip() or 'active'
+
+        if workflow == 'passive':
+            values.update({
+                'passive_page_url': request.form.get('passive_page_url', values['passive_page_url']).strip(),
+                'passive_output_dir': request.form.get('passive_output_dir', values['passive_output_dir']).strip(),
+                'passive_mode': request.form.get('passive_mode', values['passive_mode']).strip() or 'slow',
+                'passive_capture_seconds': request.form.get('passive_capture_seconds', values['passive_capture_seconds']).strip() or '90',
+                'passive_idle_seconds': request.form.get('passive_idle_seconds', values['passive_idle_seconds']).strip() or '12',
+                'passive_headless': '1' if request.form.get('passive_headless') else '',
+                'passive_auto_download': '1' if request.form.get('passive_auto_download') else '',
+            })
+
+            if values['passive_mode'] not in {'slow', 'fast'}:
+                values['passive_mode'] = 'slow'
+
+            command = [
+                sys.executable,
+                str(MEDIA_PASSIVE_CAPTURE_SCRIPT),
+                '--output', values['passive_output_dir'],
+                '--mode', values['passive_mode'],
+                '--capture-seconds', values['passive_capture_seconds'],
+                '--idle-seconds', values['passive_idle_seconds'],
+            ]
+            if values['passive_page_url']:
+                command.extend(['--url', values['passive_page_url']])
+            if values['passive_headless']:
+                command.append('--headless')
+            if values['passive_auto_download']:
+                command.append('--auto-download')
+
+            try:
+                completed = subprocess.run(
+                    command,
+                    cwd=str(SCRIPTS_DIR),
+                    capture_output=True,
+                    text=True,
+                    timeout=60 * 20,
+                )
+                output = (completed.stdout or '') + ('\n' + completed.stderr if completed.stderr else '')
+                if completed.returncode == 0:
+                    flash('Passive capture completed.', 'success')
+                else:
+                    flash('Passive capture finished with errors. Review run output below.', 'error')
+            except subprocess.TimeoutExpired:
+                output = 'Passive capture timed out after 20 minutes.'
+                flash(output, 'error')
+            except Exception as exc:  # pragma: no cover
+                output = f'Failed to run passive capture: {exc}'
+                flash(output, 'error')
+
+            return render_template('media_harvester.html', values=values, output=output)
+
         values.update({
             'url': request.form.get('url', '').strip(),
             'urls_text': request.form.get('urls_text', '').strip(),
@@ -273,6 +334,13 @@ def media_harvester():
                 'all_page': bool(values['all_page']),
                 'all_scroll': bool(values['all_scroll']),
                 'access_strategy': values['access_strategy'],
+                'passive_page_url': values['passive_page_url'],
+                'passive_output_dir': values['passive_output_dir'],
+                'passive_mode': values['passive_mode'],
+                'passive_capture_seconds': values['passive_capture_seconds'],
+                'passive_idle_seconds': values['passive_idle_seconds'],
+                'passive_headless': bool(values['passive_headless']),
+                'passive_auto_download': bool(values['passive_auto_download']),
             }
             try:
                 write_media_harvester_defaults(payload)
