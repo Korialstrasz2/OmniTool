@@ -213,9 +213,10 @@ def media_harvester():
         'proxy': '',
         'timeout': '45',
         'workers': '6',
-        'preview_only': '1',
-        'include_page_with_ytdlp': '',
-        'auto_install': '',
+        'mode': 'preview',
+        'diagnostics': '1',
+        'download_all_resolutions': '1',
+        'include_page_with_ytdlp': '1',
     }
 
     if request.method == 'POST':
@@ -225,9 +226,10 @@ def media_harvester():
             'proxy': request.form.get('proxy', '').strip(),
             'timeout': request.form.get('timeout', '45').strip() or '45',
             'workers': request.form.get('workers', '6').strip() or '6',
-            'preview_only': '1' if request.form.get('preview_only') else '',
+            'mode': request.form.get('mode', 'preview').strip() or 'preview',
+            'diagnostics': '1' if request.form.get('diagnostics') else '',
+            'download_all_resolutions': '1' if request.form.get('download_all_resolutions') else '',
             'include_page_with_ytdlp': '1' if request.form.get('include_page_with_ytdlp') else '',
-            'auto_install': '1' if request.form.get('auto_install') else '',
         })
 
         if not values['url']:
@@ -243,12 +245,18 @@ def media_harvester():
             ]
             if values['proxy']:
                 command.extend(['--proxy', values['proxy']])
-            if values['preview_only']:
+            if values['mode'] == 'preview':
                 command.append('--preview-only')
-            if values['include_page_with_ytdlp']:
+            if values['mode'] == 'download':
                 command.append('--include-page-with-ytdlp')
-            if values['auto_install']:
-                command.append('--auto-install')
+            if values['mode'] == 'download-all':
+                command.extend(['--include-page-with-ytdlp', '--download-all-resolutions'])
+            if values['diagnostics']:
+                command.append('--diagnostics')
+            if values['download_all_resolutions'] and '--download-all-resolutions' not in command:
+                command.append('--download-all-resolutions')
+            if values['include_page_with_ytdlp'] and '--include-page-with-ytdlp' not in command:
+                command.append('--include-page-with-ytdlp')
 
             try:
                 completed = subprocess.run(
@@ -269,6 +277,31 @@ def media_harvester():
                 flash(f'Failed to run Media Harvester: {exc}', 'error')
 
     return render_template('media_harvester.html', values=values, output=output)
+
+
+
+@app.post('/media-harvester/install-dependencies')
+def media_harvester_install_dependencies():
+    command = [sys.executable, str(MEDIA_HARVESTER_SCRIPT), '--install-dependencies', '--list-tools']
+    try:
+        completed = subprocess.run(command, cwd=str(SCRIPTS_DIR), capture_output=True, text=True, timeout=60 * 10)
+        output = (completed.stdout or '') + ('\n' + completed.stderr if completed.stderr else '')
+        flash(output or 'Dependency installation command completed.', 'success' if completed.returncode == 0 else 'error')
+    except Exception as exc:  # pragma: no cover
+        flash(f'Failed to install dependencies: {exc}', 'error')
+    return redirect(url_for('media_harvester'))
+
+
+@app.post('/media-harvester/check-tools')
+def media_harvester_check_tools():
+    command = [sys.executable, str(MEDIA_HARVESTER_SCRIPT), '--list-tools']
+    try:
+        completed = subprocess.run(command, cwd=str(SCRIPTS_DIR), capture_output=True, text=True, timeout=120)
+        output = (completed.stdout or '') + ('\n' + completed.stderr if completed.stderr else '')
+        flash(output or 'Tool check completed.', 'success' if completed.returncode == 0 else 'error')
+    except Exception as exc:  # pragma: no cover
+        flash(f'Failed to run tool check: {exc}', 'error')
+    return redirect(url_for('media_harvester'))
 
 
 @app.route('/csv-editor')

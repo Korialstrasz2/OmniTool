@@ -247,3 +247,17 @@ button:hover {
 .preview-table th {
   background: #f8faff;
 }
+
+
+.wrap-actions {
+  flex-wrap: wrap;
+}
+
+.media-harvester-page {
+  border: 1px solid #c7d2fe;
+  background: linear-gradient(180deg, #ffffff, #f8faff);
+}
+
+.media-harvester-page .actions button {
+  min-width: 220px;
+}

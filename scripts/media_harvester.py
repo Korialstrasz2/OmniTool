@@ -95,6 +95,23 @@ def auto_install_yt_dlp() -> bool:
         return False
 
 
+def auto_install_dependencies() -> dict[str, bool]:
+    """Try to install recommended download dependencies."""
+    results: dict[str, bool] = {}
+    packages = ["yt-dlp", "ffmpeg-python"]
+    for package in packages:
+        try:
+            completed = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "--upgrade", package],
+                capture_output=True,
+                text=True,
+            )
+            results[package] = completed.returncode == 0
+        except Exception:
+            results[package] = False
+    return results
+
+
 def build_session(proxy: str | None, timeout: float) -> requests.Session:
     session = requests.Session()
     session.headers.update({"User-Agent": USER_AGENT})
@@ -232,6 +249,71 @@ def run_yt_dlp(url: str, out_dir: Path, timeout: float, proxy: str | None) -> tu
         return False, "yt-dlp timeout"
 
 
+def run_yt_dlp_all_resolutions(url: str, out_dir: Path, timeout: float, proxy: str | None) -> tuple[int, int, list[str]]:
+    """Download every available video resolution by enumerating yt-dlp formats."""
+    if not command_exists("yt-dlp"):
+        return 0, 0, ["yt-dlp not installed"]
+
+    list_cmd = ["yt-dlp", "--list-formats", url]
+    if proxy:
+        list_cmd.extend(["--proxy", proxy])
+
+    listed = subprocess.run(list_cmd, capture_output=True, text=True, timeout=max(timeout, 60))
+    if listed.returncode != 0:
+        return 0, 1, [f"format listing failed: {(listed.stderr or listed.stdout).strip()[-300:]}"]
+
+    lines = listed.stdout.splitlines()
+    pattern = re.compile(r"^\s*(\S+)\s+\S+\s+(\d+x\d+|audio only)")
+    selected_formats: dict[str, str] = {}
+    debug_lines: list[str] = ["yt-dlp format listing:"]
+    for line in lines:
+        if line.strip():
+            debug_lines.append(line)
+        match = pattern.search(line)
+        if not match:
+            continue
+        fmt_id = match.group(1)
+        resolution = match.group(2)
+        if resolution == "audio only":
+            continue
+        selected_formats[resolution] = fmt_id
+
+    success = 0
+    failed = 0
+    for resolution, fmt_id in sorted(selected_formats.items()):
+        output_template = str(out_dir / f"%(title).120s_%(id)s_{resolution}.%(ext)s")
+        cmd = [
+            "yt-dlp",
+            "--no-overwrites",
+            "--restrict-filenames",
+            "--write-info-json",
+            "--write-thumbnail",
+            "-f",
+            f"{fmt_id}+bestaudio/best",
+            "--output",
+            output_template,
+            url,
+        ]
+        if command_exists("ffmpeg"):
+            cmd.extend(["--merge-output-format", "mp4"])
+        if proxy:
+            cmd.extend(["--proxy", proxy])
+
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=max(timeout, 120))
+        if result.returncode == 0:
+            success += 1
+            debug_lines.append(f"[OK] {resolution} via format {fmt_id}")
+        else:
+            failed += 1
+            err = (result.stderr or result.stdout).strip()[-220:]
+            debug_lines.append(f"[FAIL] {resolution} via format {fmt_id}: {err}")
+
+    if not selected_formats:
+        failed += 1
+        debug_lines.append("No video formats discovered from yt-dlp output.")
+    return success, failed, debug_lines
+
+
 def collect_candidates(session: requests.Session, url: str, timeout: float) -> list[Candidate]:
     page_html = fetch_page(session, url, timeout)
     return extract_from_html(page_html, url)
@@ -243,7 +325,7 @@ def preview(candidates: Iterable[Candidate], limit: int = 40) -> None:
         if idx >= limit:
             print(f"... and more ({idx + 1}+ entries)")
             break
-        print(f"[{idx+1:03}] {item.url}  ({item.source})")
+        print(f"[{idx+1:03}] {safe_filename_from_url(item.url, 'media_item')} :: {item.url}  ({item.source})")
 
 
 def anonymize_notice(proxy: str | None) -> None:
@@ -266,12 +348,37 @@ def main() -> int:
     parser.add_argument("--include-page-with-ytdlp", action="store_true", help="Also run yt-dlp directly on page URL")
     parser.add_argument("--skip-launch-check", action="store_true", help="Skip dependency check output")
     parser.add_argument("--auto-install", action="store_true", help="Try to auto-install missing yt-dlp")
+    parser.add_argument("--install-dependencies", action="store_true", help="Install recommended downloader dependencies")
+    parser.add_argument("--list-tools", action="store_true", help="Print a checklist of downloader tools")
+    parser.add_argument("--diagnostics", action="store_true", help="Print detailed diagnostics and format information")
+    parser.add_argument("--download-all-resolutions", action="store_true", help="Download each available video resolution with yt-dlp")
     args = parser.parse_args()
 
-    if not args.url:
+    if args.install_dependencies:
+        install_results = auto_install_dependencies()
+        print("\n=== Dependency installation ===")
+        for pkg, ok in install_results.items():
+            print(f"- {pkg:<14}: {'INSTALLED' if ok else 'FAILED'}")
+        print("Note: ffmpeg binary may still need OS package manager install.")
+
+    if args.list_tools:
+        print("\n=== Tool checklist ===")
+        print("- yt-dlp  :", "OK" if command_exists("yt-dlp") else "MISSING")
+        print("- ffmpeg  :", "OK" if command_exists("ffmpeg") else "MISSING")
+        print("- curl    :", "OK" if command_exists("curl") else "MISSING")
+        print("- python  : OK")
+        print("Install notes:")
+        print("  * python -m pip install -U yt-dlp")
+        print("  * Linux: sudo apt install ffmpeg")
+        print("  * macOS: brew install ffmpeg")
+        print("  * Windows: winget install Gyan.FFmpeg")
+
+    if not args.url and not (args.install_dependencies or args.list_tools):
         print("No URL provided. Example:")
         print("python media_harvester.py https://example.com --include-page-with-ytdlp")
         return 1
+    if not args.url:
+        return 0
 
     anonymize_notice(args.proxy)
     if not args.skip_launch_check:
@@ -338,6 +445,25 @@ def main() -> int:
         else:
             failure_count += 1
             print(f"[FAIL] page-url -> {msg}")
+
+    if args.download_all_resolutions:
+        res_ok, res_fail, debug_lines = run_yt_dlp_all_resolutions(args.url, out_dir, max(args.timeout * 2, 120), args.proxy)
+        success_count += res_ok
+        failure_count += res_fail
+        for line in debug_lines:
+            print(line)
+
+    if args.diagnostics:
+        print("\n=== Diagnostics ===")
+        print(f"Target URL     : {args.url}")
+        print(f"Workers        : {args.workers}")
+        print(f"Timeout        : {args.timeout}")
+        print(f"Proxy          : {args.proxy or 'none'}")
+        print(f"Candidates     : {len(candidates)}")
+        if command_exists("yt-dlp"):
+            probe = subprocess.run(["yt-dlp", "--list-formats", args.url], capture_output=True, text=True, timeout=max(args.timeout, 90))
+            print("Format probe rc:", probe.returncode)
+            print((probe.stdout or probe.stderr)[-4000:])
 
     print("\\n=== Summary ===")
     print(f"Output folder : {out_dir}")
