@@ -1,35 +1,22 @@
 {% extends 'base.html' %}
 {% block content %}
-<section class="card hero">
+<section class="card hero media-hero">
   <div class="card-header">
     <h2>Media Harvester Pro</h2>
-    <p class="lead">Preview files, download with multi-resolution fallback, and run one-click dependency tooling.</p>
+    <p class="lead">Modern downloader workflow with configurable defaults, deep page extraction, and optional all-scroll discovery for public pages.</p>
   </div>
-</section>
-
-<section class="card">
-  <h3>Quick actions</h3>
-  <div class="actions wrap-actions">
-    <form method="post" action="{{ url_for('media_harvester_check_tools') }}" class="inline-form">
-      <button type="submit">Check Download Tools</button>
-    </form>
-    <form method="post" action="{{ url_for('media_harvester_install_dependencies') }}" class="inline-form">
-      <button type="submit">Install / Upgrade Dependencies</button>
-    </form>
-  </div>
-  <p class="help-text">Buttons are provided for tool checks and dependency installs (no checkboxes required).</p>
 </section>
 
 <section class="card card-soft media-harvester-page">
   <form method="post" class="stack">
     <label>
       Target URL
-      <input type="text" name="url" value="{{ values.url }}" placeholder="https://example.com/page" required>
+      <input type="text" name="url" value="{{ values.url }}" placeholder="https://example.com/page">
     </label>
 
     <div class="form-grid">
       <label>
-        Output folder
+        Default output folder
         <input type="text" name="output_dir" value="{{ values.output_dir }}">
       </label>
       <label>
@@ -50,9 +37,23 @@
       <label>
         Run mode
         <select name="mode">
-          <option value="preview" {% if values.mode == 'preview' %}selected{% endif %}>Preview only (file name + URL list)</option>
-          <option value="download" {% if values.mode == 'download' %}selected{% endif %}>Standard download (fallback enabled)</option>
+          <option value="preview" {% if values.mode == 'preview' %}selected{% endif %}>Preview only</option>
+          <option value="download" {% if values.mode == 'download' %}selected{% endif %}>Standard download</option>
           <option value="download-all" {% if values.mode == 'download-all' %}selected{% endif %}>Download all available resolutions</option>
+        </select>
+      </label>
+      <label>
+        All page!
+        <select name="all_page">
+          <option value="1" {% if values.all_page %}selected{% endif %}>Enabled</option>
+          <option value="" {% if not values.all_page %}selected{% endif %}>Disabled</option>
+        </select>
+      </label>
+      <label>
+        All scroll
+        <select name="all_scroll">
+          <option value="1" {% if values.all_scroll %}selected{% endif %}>Enabled</option>
+          <option value="" {% if not values.all_scroll %}selected{% endif %}>Disabled</option>
         </select>
       </label>
       <label>
@@ -62,6 +63,9 @@
           <option value="" {% if not values.include_page_with_ytdlp %}selected{% endif %}>Disabled</option>
         </select>
       </label>
+    </div>
+
+    <div class="form-grid">
       <label>
         Diagnostics output
         <select name="diagnostics">
@@ -78,22 +82,24 @@
       </label>
     </div>
 
-    <div class="actions">
+    <div class="actions wrap-actions">
       <button type="submit">Run Media Harvester</button>
+      <button type="submit" name="save_defaults" value="1" class="btn-secondary">Save as defaults</button>
     </div>
   </form>
 </section>
 
 <section class="card">
-  <h3>Help: controls explained</h3>
-  <ul>
-    <li><strong>Workers</strong>: number of parallel downloads. Increase for faster connections, lower for unstable networks.</li>
-    <li><strong>Run mode</strong>: preview, standard fallback download, or all-resolutions download.</li>
-    <li><strong>Diagnostics output</strong>: prints format probe + troubleshooting logs so you can see why a resolution failed.</li>
-    <li><strong>Include page URL with yt-dlp</strong>: useful when direct media links are hidden but extractor works on page URL.</li>
-    <li><strong>Force all resolutions</strong>: enumerates yt-dlp formats and attempts one file per discovered resolution.</li>
-    <li><strong>Install / Upgrade Dependencies</strong>: installs/upgrades supported downloader dependencies.</li>
-  </ul>
+  <h3>Quick actions</h3>
+  <div class="actions wrap-actions">
+    <form method="post" action="{{ url_for('media_harvester_check_tools') }}" class="inline-form">
+      <button type="submit">Check Download Tools</button>
+    </form>
+    <form method="post" action="{{ url_for('media_harvester_install_dependencies') }}" class="inline-form">
+      <button type="submit">Install / Upgrade Dependencies</button>
+    </form>
+  </div>
+  <p class="help-text">This tool supports public or authorized content access only; it does not bypass paywalls, account gates, or age checks.</p>
 </section>
 
 {% if output %}

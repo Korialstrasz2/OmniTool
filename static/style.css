@@ -256,8 +256,23 @@ button:hover {
 .media-harvester-page {
   border: 1px solid #c7d2fe;
   background: linear-gradient(180deg, #ffffff, #f8faff);
+  box-shadow: 0 16px 32px rgba(79, 70, 229, 0.15);
 }
 
 .media-harvester-page .actions button {
   min-width: 220px;
+}
+
+.media-hero {
+  background: linear-gradient(120deg, #111827, #4338ca 55%, #06b6d4);
+}
+
+.btn-secondary {
+  background: #ffffff;
+  color: #3730a3;
+  border: 1px solid #c7d2fe;
+}
+
+.btn-secondary:hover {
+  background: #eef2ff;
 }

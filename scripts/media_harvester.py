@@ -10,6 +10,7 @@ import argparse
 import concurrent.futures
 import html
 import importlib.util
+import json
 import mimetypes
 import os
 import re
@@ -28,6 +29,8 @@ USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
+DEFAULTS_FILE = Path(__file__).with_name("media_harvester_defaults.json")
+
 MEDIA_EXTENSIONS = {
     ".mp4",
     ".webm",
@@ -51,6 +54,11 @@ MEDIA_EXTENSIONS = {
     ".svg",
     ".ts",
     ".m3u8",
+    ".pdf",
+    ".doc",
+    ".docx",
+    ".ppt",
+    ".pptx",
 }
 
 
@@ -59,6 +67,93 @@ class Candidate:
     url: str
     kind: str
     source: str
+
+
+def load_defaults() -> dict[str, object]:
+    if not DEFAULTS_FILE.exists():
+        return {}
+    try:
+        data = json.loads(DEFAULTS_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        return {}
+    return {}
+
+
+def save_defaults(values: dict[str, object]) -> tuple[bool, str]:
+    try:
+        DEFAULTS_FILE.write_text(json.dumps(values, indent=2), encoding="utf-8")
+        return True, f"defaults saved to {DEFAULTS_FILE}"
+    except Exception as exc:
+        return False, f"failed to save defaults: {exc}"
+
+
+def bool_default(defaults: dict[str, object], key: str, fallback: bool) -> bool:
+    value = defaults.get(key, fallback)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.lower() in {"1", "true", "yes", "on"}
+    return fallback
+
+
+def collect_candidates_from_scrolling(url: str, timeout: float, proxy: str | None) -> list[Candidate]:
+    """Capture media-like URLs discovered while auto-scrolling a page.
+
+    Uses Playwright when installed. Falls back to an empty list if unavailable.
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except Exception:
+        print("Playwright is not installed; skipping all-scroll discovery.")
+        return []
+
+    discovered: list[Candidate] = []
+    seen: set[str] = set()
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(user_agent=USER_AGENT)
+        if proxy:
+            print("Note: Playwright scrolling currently ignores proxy setting.")
+        page = context.new_page()
+
+        def capture(resource_url: str, source: str) -> None:
+            normalized = normalize_candidate(resource_url, url)
+            lower = normalized.lower()
+            if normalized in seen:
+                return
+            if any(ext in lower for ext in MEDIA_EXTENSIONS) or any(x in lower for x in ("/image", "/video", "/audio", ".pdf")):
+                discovered.append(Candidate(normalized, "media", source))
+                seen.add(normalized)
+
+        page.on("response", lambda r: capture(r.url, "scroll-response"))
+        page.goto(url, wait_until="networkidle", timeout=int(timeout * 1000))
+
+        same_height_count = 0
+        previous_height = 0
+        for _ in range(30):
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            page.wait_for_timeout(900)
+            height = page.evaluate("document.body.scrollHeight")
+            if height == previous_height:
+                same_height_count += 1
+            else:
+                same_height_count = 0
+            previous_height = height
+            if same_height_count >= 3:
+                break
+
+        html_content = page.content()
+        for item in extract_from_html(html_content, url):
+            if item.url not in seen:
+                discovered.append(item)
+                seen.add(item.url)
+
+        browser.close()
+
+    return discovered
 
 
 def command_exists(name: str) -> bool:
@@ -227,7 +322,7 @@ def looks_like_media(url: str, content_type: str | None) -> bool:
     lower = url.lower()
     if any(ext in lower for ext in MEDIA_EXTENSIONS):
         return True
-    if content_type and any(kind in content_type for kind in ("image/", "video/", "audio/", "application/vnd.apple.mpegurl")):
+    if content_type and any(kind in content_type for kind in ("image/", "video/", "audio/", "application/vnd.apple.mpegurl", "application/pdf")):
         return True
     return False
 
@@ -420,20 +515,39 @@ def anonymize_notice(proxy: str | None) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Download media from a webpage with fallback strategies.")
+    defaults = load_defaults()
     parser.add_argument("url", nargs="?", help="Target page URL")
-    parser.add_argument("--output", default="media_dump", help="Output directory")
-    parser.add_argument("--proxy", default=None, help="Proxy URL (example: socks5h://127.0.0.1:9050)")
-    parser.add_argument("--timeout", type=float, default=45.0, help="Request timeout in seconds")
-    parser.add_argument("--workers", type=int, default=6, help="Parallel download workers")
-    parser.add_argument("--preview-only", action="store_true", help="Only discover and preview media")
-    parser.add_argument("--include-page-with-ytdlp", action="store_true", help="Also run yt-dlp directly on page URL")
+    parser.add_argument("--output", default=str(defaults.get("output", "media_dump")), help="Output directory")
+    parser.add_argument("--proxy", default=defaults.get("proxy"), help="Proxy URL (example: socks5h://127.0.0.1:9050)")
+    parser.add_argument("--timeout", type=float, default=float(defaults.get("timeout", 45.0)), help="Request timeout in seconds")
+    parser.add_argument("--workers", type=int, default=int(defaults.get("workers", 6)), help="Parallel download workers")
+    parser.add_argument("--preview-only", action="store_true", default=bool_default(defaults, "preview_only", False), help="Only discover and preview media")
+    parser.add_argument("--include-page-with-ytdlp", action="store_true", default=bool_default(defaults, "include_page_with_ytdlp", False), help="Also run yt-dlp directly on page URL")
     parser.add_argument("--skip-launch-check", action="store_true", help="Skip dependency check output")
     parser.add_argument("--auto-install", action="store_true", help="Try to auto-install missing yt-dlp")
     parser.add_argument("--install-dependencies", action="store_true", help="Install recommended downloader dependencies")
     parser.add_argument("--list-tools", action="store_true", help="Print a checklist of downloader tools")
-    parser.add_argument("--diagnostics", action="store_true", help="Print detailed diagnostics and format information")
-    parser.add_argument("--download-all-resolutions", action="store_true", help="Download each available video resolution with yt-dlp")
+    parser.add_argument("--diagnostics", action="store_true", default=bool_default(defaults, "diagnostics", False), help="Print detailed diagnostics and format information")
+    parser.add_argument("--download-all-resolutions", action="store_true", default=bool_default(defaults, "download_all_resolutions", False), help="Download each available video resolution with yt-dlp")
+    parser.add_argument("--all-page", action="store_true", help="Capture page-level assets and run page extraction")
+    parser.add_argument("--all-scroll", action="store_true", help="Auto-scroll page (Playwright) and capture media URLs")
+    parser.add_argument("--save-defaults", action="store_true", help="Save current options as defaults")
     args = parser.parse_args()
+
+    if args.save_defaults:
+        ok, msg = save_defaults({
+            "output": args.output,
+            "proxy": args.proxy,
+            "timeout": args.timeout,
+            "workers": args.workers,
+            "preview_only": args.preview_only,
+            "include_page_with_ytdlp": args.include_page_with_ytdlp,
+            "diagnostics": args.diagnostics,
+            "download_all_resolutions": args.download_all_resolutions,
+        })
+        print(msg)
+        if not ok:
+            return 1
 
     if args.install_dependencies:
         install_results = auto_install_dependencies()
@@ -486,6 +600,18 @@ def main() -> int:
         print(f"Failed to parse page: {exc}")
         candidates = []
 
+    if args.all_scroll:
+        try:
+            scrolled = collect_candidates_from_scrolling(args.url, args.timeout, args.proxy)
+            existing = {c.url for c in candidates}
+            for item in scrolled:
+                if item.url not in existing:
+                    candidates.append(item)
+                    existing.add(item.url)
+            print(f"All-scroll discovery added {len(scrolled)} entries.")
+        except Exception as exc:
+            print(f"All-scroll discovery failed: {exc}")
+
     preview(candidates)
     print(f"\\nDiscovered {len(candidates)} potential media URLs.")
 
@@ -527,7 +653,7 @@ def main() -> int:
             failure_count += 1
             print(f"[FAIL] {url} -> {message}")
 
-    if args.include_page_with_ytdlp:
+    if args.include_page_with_ytdlp or args.all_page:
         ok, msg = run_yt_dlp(args.url, out_dir, max(args.timeout * 2, 90), args.proxy)
         if ok:
             success_count += 1

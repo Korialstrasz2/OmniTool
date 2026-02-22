@@ -19,6 +19,7 @@ HUNYUAN_CONFIG = SCRIPTS_DIR / 'hunyuan3d_config.json'
 HUNYUAN_REPO_URL = 'https://github.com/tencent-hunyuan/hunyuan3d-2.1.git'
 LYRICS_CONFIG = SCRIPTS_DIR / 'lyrics_embedder_config.json'
 MEDIA_HARVESTER_SCRIPT = SCRIPTS_DIR / 'media_harvester.py'
+MEDIA_HARVESTER_DEFAULTS = SCRIPTS_DIR / 'media_harvester_defaults.json'
 
 try:
     from openai import OpenAI
@@ -26,6 +27,21 @@ except Exception:  # pragma: no cover - optional runtime dependency
     OpenAI = None  # type: ignore
 
 
+
+
+
+def read_media_harvester_defaults():
+    if not MEDIA_HARVESTER_DEFAULTS.exists():
+        return {}
+    try:
+        data = json.loads(MEDIA_HARVESTER_DEFAULTS.read_text(encoding='utf-8'))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def write_media_harvester_defaults(values):
+    MEDIA_HARVESTER_DEFAULTS.write_text(json.dumps(values, indent=2), encoding='utf-8')
 
 def load_tools():
     """Load tool definitions from tools.json."""
@@ -207,16 +223,19 @@ def tool_detail(tool_id):
 def media_harvester():
     """Media discovery/downloader with preview and privacy controls."""
     output = ''
+    defaults = read_media_harvester_defaults()
     values = {
         'url': '',
-        'output_dir': str(SCRIPTS_DIR / 'media_downloads'),
-        'proxy': '',
-        'timeout': '45',
-        'workers': '6',
-        'mode': 'preview',
-        'diagnostics': '1',
-        'download_all_resolutions': '1',
-        'include_page_with_ytdlp': '1',
+        'output_dir': str(defaults.get('output', SCRIPTS_DIR / 'media_downloads')),
+        'proxy': str(defaults.get('proxy', '')),
+        'timeout': str(defaults.get('timeout', '45')),
+        'workers': str(defaults.get('workers', '6')),
+        'mode': str(defaults.get('mode', 'preview')),
+        'diagnostics': '1' if defaults.get('diagnostics', True) else '',
+        'download_all_resolutions': '1' if defaults.get('download_all_resolutions', True) else '',
+        'include_page_with_ytdlp': '1' if defaults.get('include_page_with_ytdlp', True) else '',
+        'all_page': '1' if defaults.get('all_page', False) else '',
+        'all_scroll': '1' if defaults.get('all_scroll', False) else '',
     }
 
     if request.method == 'POST':
@@ -230,7 +249,29 @@ def media_harvester():
             'diagnostics': '1' if request.form.get('diagnostics') else '',
             'download_all_resolutions': '1' if request.form.get('download_all_resolutions') else '',
             'include_page_with_ytdlp': '1' if request.form.get('include_page_with_ytdlp') else '',
+            'all_page': '1' if request.form.get('all_page') else '',
+            'all_scroll': '1' if request.form.get('all_scroll') else '',
         })
+
+        if request.form.get('save_defaults'):
+            payload = {
+                'output': values['output_dir'],
+                'proxy': values['proxy'],
+                'timeout': values['timeout'],
+                'workers': values['workers'],
+                'mode': values['mode'],
+                'diagnostics': bool(values['diagnostics']),
+                'download_all_resolutions': bool(values['download_all_resolutions']),
+                'include_page_with_ytdlp': bool(values['include_page_with_ytdlp']),
+                'all_page': bool(values['all_page']),
+                'all_scroll': bool(values['all_scroll']),
+            }
+            try:
+                write_media_harvester_defaults(payload)
+                flash('Saved media harvester defaults.', 'success')
+            except Exception as exc:
+                flash(f'Failed to save defaults: {exc}', 'error')
+            return render_template('media_harvester.html', values=values, output=output)
 
         if not values['url']:
             flash('Please enter a target URL.', 'error')
@@ -257,6 +298,10 @@ def media_harvester():
                 command.append('--download-all-resolutions')
             if values['include_page_with_ytdlp'] and '--include-page-with-ytdlp' not in command:
                 command.append('--include-page-with-ytdlp')
+            if values['all_page']:
+                command.append('--all-page')
+            if values['all_scroll']:
+                command.append('--all-scroll')
 
             try:
                 completed = subprocess.run(
