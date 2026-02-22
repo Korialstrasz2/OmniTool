@@ -538,6 +538,13 @@ def run_yt_dlp_with_strategies(
 
     strategies: list[tuple[str, list[str]]] = [("default", [])]
     if access_strategy == "resilient":
+        strategies.append(("generic-extractor", ["--force-generic-extractor"]))
+        strategies.append(
+            (
+                "generic-network-retry",
+                ["--force-generic-extractor", "--retries", "12", "--retry-sleep", "exp=1:16"],
+            )
+        )
         preferred_targets = ["chrome", "edge", "safari", "firefox"]
         available_targets = [target for target in preferred_targets if target in impersonation_targets]
         if not available_targets and impersonation_targets:
@@ -548,6 +555,12 @@ def run_yt_dlp_with_strategies(
                 (
                     f"network-retry-{target}",
                     ["--impersonate", target, "--retries", "12", "--retry-sleep", "exp=1:16"],
+                )
+            )
+            strategies.append(
+                (
+                    f"generic-impersonate-{target}",
+                    ["--force-generic-extractor", "--impersonate", target],
                 )
             )
         if not available_targets:
@@ -596,6 +609,28 @@ def needs_impersonation_dependency(error_text: str) -> bool:
         or "install the required impersonation dependency" in lower
         or "impersonate target" in lower
     )
+
+
+def suggest_authorized_next_steps(error_text: str) -> str | None:
+    """Return actionable guidance for common download failure classes.
+
+    Guidance focuses on authorized-access fixes (cookies, retries, extractor mode),
+    not bypassing access controls.
+    """
+    lower = error_text.lower()
+    if "unsupported url" in lower:
+        return (
+            "tip: page was not matched by a dedicated extractor; use --all-page "
+            "or keep --access-strategy resilient for generic extractor fallback"
+        )
+    if "403" in lower or "forbidden" in lower or "anti-bot" in lower or "cloudflare" in lower:
+        return (
+            "tip: server rejected non-browser requests; retry with authorized browser cookies "
+            "(for example via yt-dlp cookie options) and ensure you have permission to access the media"
+        )
+    if "429" in lower or "too many requests" in lower:
+        return "tip: rate-limited by host; reduce parallelism (--workers 1-2) and retry later"
+    return None
 
 
 def run_yt_dlp_all_resolutions(
@@ -858,7 +893,11 @@ def main() -> int:
             print(f"[OK] {url} -> {message}")
         else:
             failure_count += 1
-            print(f"[FAIL] {url} -> {message}")
+            tip = suggest_authorized_next_steps(message)
+            if tip:
+                print(f"[FAIL] {url} -> {message} | {tip}")
+            else:
+                print(f"[FAIL] {url} -> {message}")
 
     if args.include_page_with_ytdlp or args.all_page:
         ok, msg = run_yt_dlp_with_strategies(args.url, out_dir, max(args.timeout * 2, 90), args.proxy, args.access_strategy)
@@ -867,7 +906,11 @@ def main() -> int:
             print(f"[OK] page-url -> {msg}")
         else:
             failure_count += 1
-            print(f"[FAIL] page-url -> {msg}")
+            tip = suggest_authorized_next_steps(msg)
+            if tip:
+                print(f"[FAIL] page-url -> {msg} | {tip}")
+            else:
+                print(f"[FAIL] page-url -> {msg}")
 
     if args.download_all_resolutions:
         res_ok, res_fail, debug_lines = run_yt_dlp_all_resolutions(args.url, out_dir, max(args.timeout * 2, 120), args.proxy, args.access_strategy)
