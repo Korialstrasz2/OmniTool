@@ -237,6 +237,7 @@ def media_harvester():
         'include_page_with_ytdlp': '1' if defaults.get('include_page_with_ytdlp', True) else '',
         'all_page': '1' if defaults.get('all_page', False) else '',
         'all_scroll': '1' if defaults.get('all_scroll', False) else '',
+        'access_strategy': str(defaults.get('access_strategy', 'standard')),
     }
 
     if request.method == 'POST':
@@ -253,7 +254,11 @@ def media_harvester():
             'include_page_with_ytdlp': '1' if request.form.get('include_page_with_ytdlp') else '',
             'all_page': '1' if request.form.get('all_page') else '',
             'all_scroll': '1' if request.form.get('all_scroll') else '',
+            'access_strategy': request.form.get('access_strategy', values['access_strategy']).strip() or 'standard',
         })
+
+        if values['access_strategy'] not in {'standard', 'resilient'}:
+            values['access_strategy'] = 'standard'
 
         if request.form.get('save_defaults'):
             payload = {
@@ -267,6 +272,7 @@ def media_harvester():
                 'include_page_with_ytdlp': bool(values['include_page_with_ytdlp']),
                 'all_page': bool(values['all_page']),
                 'all_scroll': bool(values['all_scroll']),
+                'access_strategy': values['access_strategy'],
             }
             try:
                 write_media_harvester_defaults(payload)
@@ -311,6 +317,7 @@ def media_harvester():
                     command.append('--all-page')
                 if values['all_scroll']:
                     command.append('--all-scroll')
+                command.extend(['--access-strategy', values['access_strategy']])
 
                 try:
                     completed = subprocess.run(

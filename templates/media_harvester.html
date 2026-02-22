@@ -49,6 +49,13 @@ https://example.com/page-two">{{ values.urls_text }}</textarea>
         </select>
       </label>
       <label>
+        Access strategy
+        <select name="access_strategy">
+          <option value="standard" {% if values.access_strategy == 'standard' %}selected{% endif %}>Standard</option>
+          <option value="resilient" {% if values.access_strategy == 'resilient' %}selected{% endif %}>Resilient retry strategy</option>
+        </select>
+      </label>
+      <label>
         All page!
         <select name="all_page">
           <option value="1" {% if values.all_page %}selected{% endif %}>Enabled</option>
@@ -105,7 +112,7 @@ https://example.com/page-two">{{ values.urls_text }}</textarea>
       <button type="submit">Install / Upgrade Dependencies</button>
     </form>
   </div>
-  <p class="help-text">This tool supports public or authorized content access only; it does not bypass paywalls, account gates, or age checks.</p>
+  <p class="help-text">This tool supports public or authorized content access only; it does not bypass paywalls, account gates, or age checks. Resilient mode only increases retries and compatible client behaviors for legitimate access.</p>
 </section>
 
 {% if output %}

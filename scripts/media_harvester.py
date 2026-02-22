@@ -404,6 +404,8 @@ def run_yt_dlp(url: str, out_dir: Path, timeout: float, proxy: str | None) -> tu
     cmd = cmd_prefix + [
         "--no-overwrites",
         "--no-playlist",
+        "--socket-timeout",
+        str(max(timeout, 20)),
         "--restrict-filenames",
         "--write-info-json",
         "--write-thumbnail",
@@ -417,12 +419,74 @@ def run_yt_dlp(url: str, out_dir: Path, timeout: float, proxy: str | None) -> tu
         cmd.extend(["--proxy", proxy])
 
     try:
-        completed = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        completed = subprocess.run(cmd, capture_output=True, text=True, timeout=max(timeout, 180))
         if completed.returncode == 0:
             return True, "yt-dlp success"
         return False, (completed.stderr or completed.stdout).strip()[-250:]
     except subprocess.TimeoutExpired:
         return False, "yt-dlp timeout"
+
+
+def run_yt_dlp_with_strategies(
+    url: str,
+    out_dir: Path,
+    timeout: float,
+    proxy: str | None,
+    access_strategy: str,
+) -> tuple[bool, str]:
+    """Run yt-dlp with progressive, authorized-access strategies.
+
+    These strategies are intended for publicly accessible or otherwise
+    authorized content only. They do not attempt account takeover,
+    paywall bypass, or bot-protection circumvention.
+    """
+    cmd_prefix = yt_dlp_command()
+    if not cmd_prefix:
+        return False, "yt-dlp not installed"
+
+    output_template = str(out_dir / "%(title).120s_%(id)s.%(ext)s")
+    base_cmd = cmd_prefix + [
+        "--no-overwrites",
+        "--no-playlist",
+        "--restrict-filenames",
+        "--write-info-json",
+        "--write-thumbnail",
+        "--socket-timeout",
+        str(max(timeout, 20)),
+        "--output",
+        output_template,
+    ]
+    if command_exists("ffmpeg"):
+        base_cmd.extend(["--merge-output-format", "mp4"])
+    if proxy:
+        base_cmd.extend(["--proxy", proxy])
+
+    strategies: list[tuple[str, list[str]]]
+    if access_strategy == "resilient":
+        strategies = [
+            ("default", []),
+            ("impersonate-chrome", ["--impersonate", "chrome"]),
+            (
+                "network-retry",
+                ["--impersonate", "chrome", "--retries", "12", "--retry-sleep", "exp=1:16"],
+            ),
+        ]
+    else:
+        strategies = [("default", [])]
+
+    failures: list[str] = []
+    for label, extra in strategies:
+        cmd = base_cmd + extra + [url]
+        try:
+            completed = subprocess.run(cmd, capture_output=True, text=True, timeout=max(timeout, 180))
+            if completed.returncode == 0:
+                return True, f"yt-dlp success via {label} strategy"
+            err = (completed.stderr or completed.stdout).strip().splitlines()[-1:] or ["unknown error"]
+            failures.append(f"{label}: {err[0]}")
+        except subprocess.TimeoutExpired:
+            failures.append(f"{label}: timeout")
+
+    return False, " | ".join(failures)[-320:]
 
 
 def run_yt_dlp_all_resolutions(url: str, out_dir: Path, timeout: float, proxy: str | None) -> tuple[int, int, list[str]]:
@@ -531,6 +595,12 @@ def main() -> int:
     parser.add_argument("--download-all-resolutions", action="store_true", default=bool_default(defaults, "download_all_resolutions", False), help="Download each available video resolution with yt-dlp")
     parser.add_argument("--all-page", action="store_true", help="Capture page-level assets and run page extraction")
     parser.add_argument("--all-scroll", action="store_true", help="Auto-scroll page (Playwright) and capture media URLs")
+    parser.add_argument(
+        "--access-strategy",
+        choices=["standard", "resilient"],
+        default=str(defaults.get("access_strategy", "standard")),
+        help="Authorized access strategy for yt-dlp (resilient adds retries and browser impersonation).",
+    )
     parser.add_argument("--save-defaults", action="store_true", help="Save current options as defaults")
     args = parser.parse_args()
 
@@ -544,6 +614,7 @@ def main() -> int:
             "include_page_with_ytdlp": args.include_page_with_ytdlp,
             "diagnostics": args.diagnostics,
             "download_all_resolutions": args.download_all_resolutions,
+            "access_strategy": args.access_strategy,
         })
         print(msg)
         if not ok:
@@ -627,7 +698,7 @@ def main() -> int:
             return candidate.url, False, "not media"
 
         if candidate.url.lower().endswith(".m3u8") or "m3u8" in candidate.url.lower():
-            ok, msg = run_yt_dlp(candidate.url, out_dir, args.timeout, args.proxy)
+            ok, msg = run_yt_dlp_with_strategies(candidate.url, out_dir, args.timeout, args.proxy, args.access_strategy)
             if ok:
                 return candidate.url, True, msg
             ff_ok, ff_msg = run_ffmpeg_hls(candidate.url, out_dir, args.timeout, args.proxy)
@@ -639,7 +710,7 @@ def main() -> int:
         if ok:
             return candidate.url, True, msg
 
-        ok2, msg2 = run_yt_dlp(candidate.url, out_dir, args.timeout, args.proxy)
+        ok2, msg2 = run_yt_dlp_with_strategies(candidate.url, out_dir, args.timeout, args.proxy, args.access_strategy)
         return candidate.url, ok2, msg2 if ok2 else f"{msg}; ytdlp: {msg2}"
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(args.workers, 1)) as pool:
@@ -654,7 +725,7 @@ def main() -> int:
             print(f"[FAIL] {url} -> {message}")
 
     if args.include_page_with_ytdlp or args.all_page:
-        ok, msg = run_yt_dlp(args.url, out_dir, max(args.timeout * 2, 90), args.proxy)
+        ok, msg = run_yt_dlp_with_strategies(args.url, out_dir, max(args.timeout * 2, 90), args.proxy, args.access_strategy)
         if ok:
             success_count += 1
             print(f"[OK] page-url -> {msg}")
@@ -675,6 +746,7 @@ def main() -> int:
         print(f"Workers        : {args.workers}")
         print(f"Timeout        : {args.timeout}")
         print(f"Proxy          : {args.proxy or 'none'}")
+        print(f"Access strategy: {args.access_strategy}")
         print(f"Candidates     : {len(candidates)}")
         cmd_prefix = yt_dlp_command()
         if cmd_prefix:
