@@ -1,70 +1,51 @@
 {% extends 'base.html' %}
 {% block content %}
-<section class="card hero harvester-hero">
-  <h2>Media Harvester</h2>
-  <p class="lead">Preview media names first, then download with layered fallback (direct, yt-dlp, format fallback) and debug reports.</p>
-</section>
-
 <section class="card">
-  <div class="checklist-grid">
-    <div>
-      <h3>Tool checklist</h3>
-      <p class="help-text">Use <strong>Tool check only</strong> to verify runtime support for Python, yt-dlp, ffmpeg, curl, aria2c, and gallery-dl.</p>
-    </div>
-    <ul class="compact-list">
-      <li>yt-dlp: extraction + format selection</li>
-      <li>ffmpeg: merge/remux streams</li>
-      <li>curl: direct transfer fallback</li>
-      <li>aria2c: optional fast segmented downloader</li>
-      <li>gallery-dl: extractor for image/media galleries</li>
-    </ul>
+  <div class="card-header">
+    <h2>Media Harvester</h2>
+    <p>Discover and download media from a page with preview and fallback strategies.</p>
   </div>
+  <p class="help-text">
+    Privacy-first mode supports proxies, but no software can guarantee complete anonymity or malware-free downloads.
+    Only download content you are authorized to access.
+  </p>
 </section>
 
 <section class="card card-soft">
   <form method="post" class="stack">
     <label>
       Target URL
-      <input type="text" name="url" value="{{ values.url }}" placeholder="https://example.com/page">
+      <input type="text" name="url" value="{{ values.url }}" placeholder="https://example.com/page" required>
     </label>
 
     <div class="form-grid">
-      <label>Output folder<input type="text" name="output_dir" value="{{ values.output_dir }}"></label>
-      <label>Proxy (optional)<input type="text" name="proxy" value="{{ values.proxy }}" placeholder="socks5h://127.0.0.1:9050"></label>
-      <label>Timeout seconds<input type="number" name="timeout" min="5" step="1" value="{{ values.timeout }}"></label>
-      <label>Workers<input type="number" name="workers" min="1" step="1" value="{{ values.workers }}"></label>
-      <label>Preview limit<input type="number" name="preview_limit" min="1" step="1" value="{{ values.preview_limit }}"></label>
-      <label>Max downloads (0=all)<input type="number" name="max_downloads" min="0" step="1" value="{{ values.max_downloads }}"></label>
-      <label>yt-dlp primary format<input type="text" name="ytdlp_format" value="{{ values.ytdlp_format }}"></label>
-      <label>Fallback formats (comma)<input type="text" name="fallback_formats" value="{{ values.fallback_formats }}"></label>
+      <label>
+        Output folder
+        <input type="text" name="output_dir" value="{{ values.output_dir }}">
+      </label>
+      <label>
+        Proxy (optional)
+        <input type="text" name="proxy" value="{{ values.proxy }}" placeholder="socks5h://127.0.0.1:9050">
+      </label>
+      <label>
+        Timeout seconds
+        <input type="number" name="timeout" min="5" step="1" value="{{ values.timeout }}">
+      </label>
+      <label>
+        Workers
+        <input type="number" name="workers" min="1" step="1" value="{{ values.workers }}">
+      </label>
     </div>
 
     <fieldset class="options">
-      <legend>Control tools</legend>
-      <label class="checkbox-inline"><input type="checkbox" name="preview_only" {% if values.preview_only %}checked{% endif %}> Preview only</label>
-      <label class="checkbox-inline"><input type="checkbox" name="include_page_with_ytdlp" {% if values.include_page_with_ytdlp %}checked{% endif %}> Also run yt-dlp on page URL</label>
-      <label class="checkbox-inline"><input type="checkbox" name="list_formats" {% if values.list_formats %}checked{% endif %}> Ask yt-dlp to list formats</label>
-      <label class="checkbox-inline"><input type="checkbox" name="skip_direct" {% if values.skip_direct %}checked{% endif %}> Skip direct downloader</label>
-      <label class="checkbox-inline"><input type="checkbox" name="skip_ytdlp" {% if values.skip_ytdlp %}checked{% endif %}> Skip yt-dlp path</label>
-      <label class="checkbox-inline"><input type="checkbox" name="debug" {% if values.debug %}checked{% endif %}> Debug mode (write JSON report)</label>
-      <label class="checkbox-inline"><input type="checkbox" name="auto_install" {% if values.auto_install %}checked{% endif %}> Auto-install supported missing tools (yt-dlp, gallery-dl)</label>
-      <label class="checkbox-inline"><input type="checkbox" name="tool_check" {% if values.tool_check %}checked{% endif %}> Tool check only (no URL required)</label>
+      <legend>Options</legend>
+      <label class="checkbox-inline"><input type="checkbox" name="preview_only" {% if values.preview_only %}checked{% endif %}> Preview only (discover media without downloading)</label>
+      <label class="checkbox-inline"><input type="checkbox" name="include_page_with_ytdlp" {% if values.include_page_with_ytdlp %}checked{% endif %}> Also run yt-dlp on the page URL</label>
+      <label class="checkbox-inline"><input type="checkbox" name="auto_install" {% if values.auto_install %}checked{% endif %}> Attempt to auto-install missing yt-dlp</label>
     </fieldset>
 
     <button type="submit">Run Media Harvester</button>
   </form>
-</section>
-
-<section class="card">
-  <h3>Help: controls explained</h3>
-  <ul class="compact-list">
-    <li><strong>Preview limit</strong>: how many candidate items appear in the selector preview.</li>
-    <li><strong>yt-dlp primary format</strong>: first format expression tried for each item.</li>
-    <li><strong>Fallback formats</strong>: extra format expressions tried in order when the primary fails.</li>
-    <li><strong>List formats</strong>: prints available source formats so you can troubleshoot resolution failures.</li>
-    <li><strong>Debug mode</strong>: stores a <code>media_harvester_debug.json</code> report with failures + environment status.</li>
-    <li><strong>Tool check only</strong>: prints a readiness checklist and install hints.</li>
-  </ul>
 </section>
 
 {% if output %}
