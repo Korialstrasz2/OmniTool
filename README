@@ -61,3 +61,23 @@ On Windows, you can double-click `start.bat` to install dependencies, run the se
 
 The command is run from the `scripts/` directory, so relative paths work.
 Each tool automatically gets its own page with a "Run" button.
+
+## Media Harvester tool
+
+A new script is available at `scripts/media_harvester.py` for discovering and downloading media from a webpage with multi-strategy fallbacks.
+
+Example usage:
+
+```bash
+cd scripts
+python media_harvester.py --doctor
+python media_harvester.py "https://example.com/page" --probe
+python media_harvester.py "https://example.com/page" --proxy socks5h://127.0.0.1:9050 --non-interactive
+```
+
+Features include:
+- Candidate discovery from HTML tags and embedded URLs.
+- Interactive preview/selection before download.
+- Fallback download methods (`yt-dlp`, direct `requests`, `ffmpeg` for HLS, `curl`/`wget`).
+- Organized output into a new timestamped folder plus `manifest.json`.
+- Privacy-oriented defaults (no cookie jar persistence, optional proxy, low-leak headers), with realistic limitations noted.
