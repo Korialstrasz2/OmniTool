@@ -61,3 +61,16 @@ On Windows, you can double-click `start.bat` to install dependencies, run the se
 
 The command is run from the `scripts/` directory, so relative paths work.
 Each tool automatically gets its own page with a "Run" button.
+
+
+## Media Harvester
+
+OmniTool includes a **Media Harvester** page that can discover media URLs on a page, preview them, and download using fallback methods:
+
+- Direct HTTP download (images/audio/video/files)
+- `yt-dlp` fallback for complex providers
+- HLS (`.m3u8` / `.ts`) handling via `yt-dlp` + `ffmpeg` when available
+
+Features include dependency launch checks, optional `yt-dlp` auto-install, parallel workers, proxy support, and preview-only mode.
+
+> Privacy and safety note: the tool supports privacy-oriented options (for example a SOCKS proxy), but no tool can guarantee complete anonymity or guarantee that remote content is malware-free.
