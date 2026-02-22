@@ -18,6 +18,7 @@ HUNYUAN_DEFAULT_REPO = SCRIPTS_DIR / 'hunyuan3d-2.1'
 HUNYUAN_CONFIG = SCRIPTS_DIR / 'hunyuan3d_config.json'
 HUNYUAN_REPO_URL = 'https://github.com/tencent-hunyuan/hunyuan3d-2.1.git'
 LYRICS_CONFIG = SCRIPTS_DIR / 'lyrics_embedder_config.json'
+MEDIA_CONFIG = SCRIPTS_DIR / 'media_harvester_config.json'
 
 try:
     from openai import OpenAI
@@ -91,6 +92,30 @@ def load_lyrics_settings() -> Dict[str, str]:
 def save_lyrics_settings(settings: Dict[str, str]) -> None:
     LYRICS_CONFIG.parent.mkdir(parents=True, exist_ok=True)
     with open(LYRICS_CONFIG, 'w') as config_file:
+        json.dump(settings, config_file, indent=2)
+
+
+def load_media_settings() -> Dict[str, str]:
+    defaults = {
+        'default_url': '',
+        'output_root': str(SCRIPTS_DIR / 'downloads' / 'media_harvester'),
+        'user_agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0 Safari/537.36',
+        'timeout': '20',
+        'respect_robots': '1',
+    }
+    if MEDIA_CONFIG.exists():
+        try:
+            with open(MEDIA_CONFIG) as config_file:
+                stored = json.load(config_file)
+                defaults.update(stored)
+        except json.JSONDecodeError:
+            pass
+    return defaults
+
+
+def save_media_settings(settings: Dict[str, str]) -> None:
+    MEDIA_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+    with open(MEDIA_CONFIG, 'w') as config_file:
         json.dump(settings, config_file, indent=2)
 
 
@@ -195,6 +220,8 @@ def tool_detail(tool_id):
         return redirect(url_for('lyrics_embedder'))
     if tool_id == 'csv-editor':
         return redirect(url_for('csv_editor'))
+    if tool_id == 'media-harvester':
+        return redirect(url_for('media_harvester'))
     return render_template('tool.html', tool=tool)
 
 
@@ -202,6 +229,74 @@ def tool_detail(tool_id):
 def csv_editor():
     """CSV import/export formatter with delimiter controls and previews."""
     return render_template('csv_editor.html')
+
+
+@app.route('/media-harvester')
+def media_harvester():
+    """Dashboard for media preview and controlled downloading with fallbacks."""
+    settings = load_media_settings()
+    return render_template('media_harvester.html', settings=settings)
+
+
+@app.post('/media-harvester/save-settings')
+def media_harvester_save_settings():
+    settings = {
+        'default_url': request.form.get('default_url', '').strip(),
+        'output_root': request.form.get('output_root', '').strip(),
+        'user_agent': request.form.get('user_agent', '').strip(),
+        'timeout': request.form.get('timeout', '20').strip() or '20',
+        'respect_robots': '1' if request.form.get('respect_robots') else '0',
+    }
+    save_media_settings(settings)
+    flash('Media Harvester defaults saved.', 'success')
+    return redirect(url_for('media_harvester'))
+
+
+@app.get('/media-harvester/check')
+def media_harvester_check():
+    from scripts.media_harvester import check_dependencies
+
+    return jsonify(check_dependencies())
+
+
+@app.post('/media-harvester/preview')
+def media_harvester_preview():
+    from scripts.media_harvester import preview_media
+
+    url = request.form.get('url', '').strip()
+    timeout = float(request.form.get('timeout', '20') or '20')
+    user_agent = request.form.get('user_agent', '').strip()
+    if not url:
+        return jsonify({'ok': False, 'error': 'URL is required.'}), 400
+    if not user_agent:
+        user_agent = load_media_settings().get('user_agent', '')
+    try:
+        payload = preview_media(url=url, timeout=timeout, user_agent=user_agent)
+        payload['ok'] = True
+        return jsonify(payload)
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 500
+
+
+@app.post('/media-harvester/download')
+def media_harvester_download():
+    from scripts.media_harvester import bulk_download
+
+    body = request.get_json(silent=True) or {}
+    items = body.get('items', [])
+    if not isinstance(items, list) or not items:
+        return jsonify({'ok': False, 'error': 'No media items selected.'}), 400
+    out_dir = (body.get('output_dir') or '').strip()
+    if not out_dir:
+        return jsonify({'ok': False, 'error': 'Output directory is required.'}), 400
+
+    timeout = float(body.get('timeout', 20) or 20)
+    user_agent = (body.get('user_agent') or '').strip() or load_media_settings().get('user_agent', '')
+    try:
+        payload = bulk_download(items=items, output_dir=Path(out_dir).expanduser(), user_agent=user_agent, timeout=timeout)
+        return jsonify(payload)
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 500
 
 
 @app.route('/tool/<tool_id>/run', methods=['POST'])
