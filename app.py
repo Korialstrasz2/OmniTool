@@ -226,6 +226,7 @@ def media_harvester():
     defaults = read_media_harvester_defaults()
     values = {
         'url': '',
+        'urls_text': '',
         'output_dir': str(defaults.get('output', SCRIPTS_DIR / 'media_downloads')),
         'proxy': str(defaults.get('proxy', '')),
         'timeout': str(defaults.get('timeout', '45')),
@@ -241,6 +242,7 @@ def media_harvester():
     if request.method == 'POST':
         values.update({
             'url': request.form.get('url', '').strip(),
+            'urls_text': request.form.get('urls_text', '').strip(),
             'output_dir': request.form.get('output_dir', values['output_dir']).strip(),
             'proxy': request.form.get('proxy', '').strip(),
             'timeout': request.form.get('timeout', '45').strip() or '45',
@@ -273,53 +275,67 @@ def media_harvester():
                 flash(f'Failed to save defaults: {exc}', 'error')
             return render_template('media_harvester.html', values=values, output=output)
 
-        if not values['url']:
-            flash('Please enter a target URL.', 'error')
+        raw_urls = values['urls_text'] or values['url']
+        urls = [line.strip() for line in raw_urls.splitlines() if line.strip()]
+        if not urls:
+            flash('Please enter at least one target URL.', 'error')
         else:
-            command = [
-                sys.executable,
-                str(MEDIA_HARVESTER_SCRIPT),
-                values['url'],
-                '--output', values['output_dir'],
-                '--timeout', values['timeout'],
-                '--workers', values['workers'],
-            ]
-            if values['proxy']:
-                command.extend(['--proxy', values['proxy']])
-            if values['mode'] == 'preview':
-                command.append('--preview-only')
-            if values['mode'] == 'download':
-                command.append('--include-page-with-ytdlp')
-            if values['mode'] == 'download-all':
-                command.extend(['--include-page-with-ytdlp', '--download-all-resolutions'])
-            if values['diagnostics']:
-                command.append('--diagnostics')
-            if values['download_all_resolutions'] and '--download-all-resolutions' not in command:
-                command.append('--download-all-resolutions')
-            if values['include_page_with_ytdlp'] and '--include-page-with-ytdlp' not in command:
-                command.append('--include-page-with-ytdlp')
-            if values['all_page']:
-                command.append('--all-page')
-            if values['all_scroll']:
-                command.append('--all-scroll')
+            values['url'] = urls[0]
+            values['urls_text'] = '\n'.join(urls)
+            all_successful = True
+            output_chunks = []
+            for index, target_url in enumerate(urls, start=1):
+                command = [
+                    sys.executable,
+                    str(MEDIA_HARVESTER_SCRIPT),
+                    target_url,
+                    '--output', values['output_dir'],
+                    '--timeout', values['timeout'],
+                    '--workers', values['workers'],
+                ]
+                if values['proxy']:
+                    command.extend(['--proxy', values['proxy']])
+                if values['mode'] == 'preview':
+                    command.append('--preview-only')
+                if values['mode'] == 'download':
+                    command.append('--include-page-with-ytdlp')
+                if values['mode'] == 'download-all':
+                    command.extend(['--include-page-with-ytdlp', '--download-all-resolutions'])
+                if values['diagnostics']:
+                    command.append('--diagnostics')
+                if values['download_all_resolutions'] and '--download-all-resolutions' not in command:
+                    command.append('--download-all-resolutions')
+                if values['include_page_with_ytdlp'] and '--include-page-with-ytdlp' not in command:
+                    command.append('--include-page-with-ytdlp')
+                if values['all_page']:
+                    command.append('--all-page')
+                if values['all_scroll']:
+                    command.append('--all-scroll')
 
-            try:
-                completed = subprocess.run(
-                    command,
-                    cwd=str(SCRIPTS_DIR),
-                    capture_output=True,
-                    text=True,
-                    timeout=60 * 30,
-                )
-                output = (completed.stdout or '') + ('\n' + completed.stderr if completed.stderr else '')
-                if completed.returncode == 0:
-                    flash('Media Harvester completed.', 'success')
-                else:
-                    flash(f'Media Harvester exited with code {completed.returncode}.', 'error')
-            except subprocess.TimeoutExpired:
-                flash('Media Harvester timed out after 30 minutes.', 'error')
-            except Exception as exc:  # pragma: no cover
-                flash(f'Failed to run Media Harvester: {exc}', 'error')
+                try:
+                    completed = subprocess.run(
+                        command,
+                        cwd=str(SCRIPTS_DIR),
+                        capture_output=True,
+                        text=True,
+                        timeout=60 * 30,
+                    )
+                    command_output = (completed.stdout or '') + ('\n' + completed.stderr if completed.stderr else '')
+                    output_chunks.append(f"=== [{index}/{len(urls)}] {target_url} ===\n{command_output}".strip())
+                    if completed.returncode != 0:
+                        all_successful = False
+                except subprocess.TimeoutExpired:
+                    all_successful = False
+                    output_chunks.append(f"=== [{index}/{len(urls)}] {target_url} ===\nTimed out after 30 minutes.")
+                except Exception as exc:  # pragma: no cover
+                    all_successful = False
+                    output_chunks.append(f"=== [{index}/{len(urls)}] {target_url} ===\nFailed to run Media Harvester: {exc}")
+
+            output = '\n\n'.join(output_chunks)
+            if all_successful:
+                flash(f'Media Harvester completed for {len(urls)} URL(s).', 'success')
+            else:
+                flash('Media Harvester finished with one or more errors. Review run output below.', 'error')
 
     return render_template('media_harvester.html', values=values, output=output)
 
