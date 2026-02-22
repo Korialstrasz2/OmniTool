@@ -216,6 +216,15 @@ def media_harvester():
         'preview_only': '1',
         'include_page_with_ytdlp': '',
         'auto_install': '',
+        'tool_check': '',
+        'preview_limit': '50',
+        'ytdlp_format': 'bestvideo*+bestaudio/best',
+        'fallback_formats': 'best/bv*+ba/b',
+        'max_downloads': '0',
+        'skip_direct': '',
+        'skip_ytdlp': '',
+        'list_formats': '',
+        'debug': '1',
     }
 
     if request.method == 'POST':
@@ -228,19 +237,35 @@ def media_harvester():
             'preview_only': '1' if request.form.get('preview_only') else '',
             'include_page_with_ytdlp': '1' if request.form.get('include_page_with_ytdlp') else '',
             'auto_install': '1' if request.form.get('auto_install') else '',
+            'tool_check': '1' if request.form.get('tool_check') else '',
+            'preview_limit': request.form.get('preview_limit', '50').strip() or '50',
+            'ytdlp_format': request.form.get('ytdlp_format', values['ytdlp_format']).strip() or values['ytdlp_format'],
+            'fallback_formats': request.form.get('fallback_formats', values['fallback_formats']).strip() or values['fallback_formats'],
+            'max_downloads': request.form.get('max_downloads', '0').strip() or '0',
+            'skip_direct': '1' if request.form.get('skip_direct') else '',
+            'skip_ytdlp': '1' if request.form.get('skip_ytdlp') else '',
+            'list_formats': '1' if request.form.get('list_formats') else '',
+            'debug': '1' if request.form.get('debug') else '',
         })
 
-        if not values['url']:
-            flash('Please enter a target URL.', 'error')
+        if not values['url'] and not values['tool_check']:
+            flash('Please enter a target URL (or run tool checklist only).', 'error')
         else:
             command = [
                 sys.executable,
                 str(MEDIA_HARVESTER_SCRIPT),
-                values['url'],
                 '--output', values['output_dir'],
                 '--timeout', values['timeout'],
                 '--workers', values['workers'],
+                '--preview-limit', values['preview_limit'],
+                '--ytdlp-format', values['ytdlp_format'],
+                '--fallback-formats', values['fallback_formats'],
+                '--max-downloads', values['max_downloads'],
             ]
+            if values['tool_check']:
+                command.append('--tool-check')
+            else:
+                command.append(values['url'])
             if values['proxy']:
                 command.extend(['--proxy', values['proxy']])
             if values['preview_only']:
@@ -249,6 +274,14 @@ def media_harvester():
                 command.append('--include-page-with-ytdlp')
             if values['auto_install']:
                 command.append('--auto-install')
+            if values['skip_direct']:
+                command.append('--skip-direct')
+            if values['skip_ytdlp']:
+                command.append('--skip-ytdlp')
+            if values['list_formats']:
+                command.append('--list-formats')
+            if values['debug']:
+                command.append('--debug')
 
             try:
                 completed = subprocess.run(
