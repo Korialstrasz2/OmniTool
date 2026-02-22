@@ -425,72 +425,6 @@ def run_yt_dlp(url: str, out_dir: Path, timeout: float, proxy: str | None) -> tu
         return False, "yt-dlp timeout"
 
 
-def run_yt_dlp_with_strategy_fallbacks(
-    url: str,
-    out_dir: Path,
-    timeout: float,
-    proxy: str | None,
-    mode: str,
-    cookies_file: str | None,
-) -> tuple[bool, str]:
-    """Run yt-dlp with progressively stronger *authorized* compatibility strategies.
-
-    This intentionally avoids anti-bot bypassing behavior. It focuses on legal,
-    session-based access patterns such as importing user cookies and retry tuning.
-    """
-    cmd_prefix = yt_dlp_command()
-    if not cmd_prefix:
-        return False, "yt-dlp not installed"
-
-    output_template = str(out_dir / "%(title).120s_%(id)s.%(ext)s")
-    base_cmd = cmd_prefix + [
-        "--no-overwrites",
-        "--no-playlist",
-        "--restrict-filenames",
-        "--write-info-json",
-        "--write-thumbnail",
-        "--output",
-        output_template,
-    ]
-    if command_exists("ffmpeg"):
-        base_cmd.extend(["--merge-output-format", "mp4"])
-    if proxy:
-        base_cmd.extend(["--proxy", proxy])
-
-    attempts: list[tuple[str, list[str]]] = [
-        ("default", []),
-    ]
-    if mode in {"conservative-retry", "authenticated-browser", "cookies-file"}:
-        attempts.append(
-            (
-                "network-tuned",
-                ["--retries", "10", "--fragment-retries", "10", "--socket-timeout", "30", "--http-chunk-size", "8M"],
-            )
-        )
-    if mode == "authenticated-browser":
-        attempts.append(("browser-cookies", ["--cookies-from-browser", "chrome"]))
-    if mode == "cookies-file":
-        if cookies_file:
-            attempts.append(("cookies-file", ["--cookies", cookies_file]))
-        else:
-            return False, "restricted mode 'cookies-file' requires --cookies-file"
-
-    failures: list[str] = []
-    for attempt_name, extra_flags in attempts:
-        cmd = base_cmd + extra_flags + [url]
-        try:
-            completed = subprocess.run(cmd, capture_output=True, text=True, timeout=max(timeout, 90))
-        except subprocess.TimeoutExpired:
-            failures.append(f"{attempt_name}: timeout")
-            continue
-        if completed.returncode == 0:
-            return True, f"yt-dlp success via {attempt_name} strategy"
-        err = (completed.stderr or completed.stdout).strip()[-240:]
-        failures.append(f"{attempt_name}: {err or 'failed'}")
-
-    return False, " | ".join(failures[-4:])
-
-
 def run_yt_dlp_all_resolutions(url: str, out_dir: Path, timeout: float, proxy: str | None) -> tuple[int, int, list[str]]:
     """Download every available video resolution by enumerating yt-dlp formats."""
     cmd_prefix = yt_dlp_command()
@@ -598,17 +532,6 @@ def main() -> int:
     parser.add_argument("--all-page", action="store_true", help="Capture page-level assets and run page extraction")
     parser.add_argument("--all-scroll", action="store_true", help="Auto-scroll page (Playwright) and capture media URLs")
     parser.add_argument("--save-defaults", action="store_true", help="Save current options as defaults")
-    parser.add_argument(
-        "--restricted-site-mode",
-        choices=["off", "conservative-retry", "authenticated-browser", "cookies-file"],
-        default=str(defaults.get("restricted_site_mode", "off")),
-        help="Authorized access mode for stricter sites: retry tuning, browser cookie import, or cookie-file session reuse.",
-    )
-    parser.add_argument(
-        "--cookies-file",
-        default=defaults.get("cookies_file"),
-        help="Netscape-format cookies file used when --restricted-site-mode=cookies-file.",
-    )
     args = parser.parse_args()
 
     if args.save_defaults:
@@ -621,8 +544,6 @@ def main() -> int:
             "include_page_with_ytdlp": args.include_page_with_ytdlp,
             "diagnostics": args.diagnostics,
             "download_all_resolutions": args.download_all_resolutions,
-            "restricted_site_mode": args.restricted_site_mode,
-            "cookies_file": args.cookies_file,
         })
         print(msg)
         if not ok:
@@ -706,14 +627,7 @@ def main() -> int:
             return candidate.url, False, "not media"
 
         if candidate.url.lower().endswith(".m3u8") or "m3u8" in candidate.url.lower():
-            ok, msg = run_yt_dlp_with_strategy_fallbacks(
-                candidate.url,
-                out_dir,
-                args.timeout,
-                args.proxy,
-                args.restricted_site_mode,
-                args.cookies_file,
-            )
+            ok, msg = run_yt_dlp(candidate.url, out_dir, args.timeout, args.proxy)
             if ok:
                 return candidate.url, True, msg
             ff_ok, ff_msg = run_ffmpeg_hls(candidate.url, out_dir, args.timeout, args.proxy)
@@ -725,14 +639,7 @@ def main() -> int:
         if ok:
             return candidate.url, True, msg
 
-        ok2, msg2 = run_yt_dlp_with_strategy_fallbacks(
-            candidate.url,
-            out_dir,
-            args.timeout,
-            args.proxy,
-            args.restricted_site_mode,
-            args.cookies_file,
-        )
+        ok2, msg2 = run_yt_dlp(candidate.url, out_dir, args.timeout, args.proxy)
         return candidate.url, ok2, msg2 if ok2 else f"{msg}; ytdlp: {msg2}"
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(args.workers, 1)) as pool:
@@ -747,14 +654,7 @@ def main() -> int:
             print(f"[FAIL] {url} -> {message}")
 
     if args.include_page_with_ytdlp or args.all_page:
-        ok, msg = run_yt_dlp_with_strategy_fallbacks(
-            args.url,
-            out_dir,
-            max(args.timeout * 2, 90),
-            args.proxy,
-            args.restricted_site_mode,
-            args.cookies_file,
-        )
+        ok, msg = run_yt_dlp(args.url, out_dir, max(args.timeout * 2, 90), args.proxy)
         if ok:
             success_count += 1
             print(f"[OK] page-url -> {msg}")
@@ -775,8 +675,6 @@ def main() -> int:
         print(f"Workers        : {args.workers}")
         print(f"Timeout        : {args.timeout}")
         print(f"Proxy          : {args.proxy or 'none'}")
-        print(f"Restricted mode: {args.restricted_site_mode}")
-        print(f"Cookies file   : {args.cookies_file or 'none'}")
         print(f"Candidates     : {len(candidates)}")
         cmd_prefix = yt_dlp_command()
         if cmd_prefix:
