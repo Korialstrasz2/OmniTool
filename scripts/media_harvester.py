@@ -277,12 +277,38 @@ def list_impersonate_targets() -> list[str]:
     if completed.returncode != 0:
         return []
     targets: list[str] = []
+    valid_target = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+    likely_prefixes = (
+        "chrome",
+        "chromium",
+        "edge",
+        "safari",
+        "firefox",
+        "opera",
+        "brave",
+        "vivaldi",
+        "ios",
+        "android",
+    )
     for line in completed.stdout.splitlines():
-        parts = line.strip().split()
-        if not parts:
+        cleaned = line.strip()
+        if not cleaned:
             continue
-        token = parts[0].strip().strip(",")
-        if token and token.lower() not in {"available", "targets", "impersonate"}:
+
+        # yt-dlp may prefix rows with markers like "[info]" or list bullets.
+        if cleaned.startswith("["):
+            cleaned = cleaned.split("]", 1)[-1].strip()
+        if cleaned.startswith(("-", "*")):
+            cleaned = cleaned[1:].strip()
+
+        if not cleaned:
+            continue
+
+        token = cleaned.split()[0].strip().strip(",")
+        lowered = token.lower()
+        if lowered in {"available", "targets", "impersonate"}:
+            continue
+        if valid_target.match(token) and lowered.startswith(likely_prefixes):
             targets.append(token)
     # Keep stable order while deduplicating.
     return list(dict.fromkeys(targets))
