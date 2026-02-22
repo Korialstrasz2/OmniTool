@@ -247,3 +247,29 @@ button:hover {
 .preview-table th {
   background: #f8faff;
 }
+
+.harvester-hero {
+  background: linear-gradient(120deg, #111827, #4338ca);
+}
+
+.checklist-grid {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr;
+  gap: 1rem;
+  align-items: start;
+}
+
+.compact-list {
+  margin: 0.2rem 0 0 1rem;
+  color: var(--subtle);
+}
+
+.compact-list li {
+  margin-bottom: 0.35rem;
+}
+
+@media (max-width: 820px) {
+  .checklist-grid {
+    grid-template-columns: 1fr;
+  }
+}
