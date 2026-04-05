@@ -57,17 +57,6 @@ https://example.com/page-two">{{ values.urls_text }}</textarea>
         </select>
       </label>
       <label>
-        Service profile
-        <select name="service_profile">
-          <option value="auto" {% if values.service_profile == 'auto' %}selected{% endif %}>Auto detect from URL</option>
-          <option value="instagram" {% if values.service_profile == 'instagram' %}selected{% endif %}>Instagram tuned mode</option>
-          <option value="generic" {% if values.service_profile == 'generic' %}selected{% endif %}>Generic</option>
-          <option value="tiktok" {% if values.service_profile == 'tiktok' %}selected{% endif %}>TikTok</option>
-          <option value="x" {% if values.service_profile == 'x' %}selected{% endif %}>X / Twitter</option>
-          <option value="youtube" {% if values.service_profile == 'youtube' %}selected{% endif %}>YouTube</option>
-        </select>
-      </label>
-      <label>
         All page!
         <select name="all_page">
           <option value="1" {% if values.all_page %}selected{% endif %}>Enabled</option>
@@ -105,22 +94,6 @@ https://example.com/page-two">{{ values.urls_text }}</textarea>
           <option value="" {% if not values.download_all_resolutions %}selected{% endif %}>Disabled</option>
         </select>
       </label>
-      <label>
-        Authorized auth mode
-        <select name="auth_mode">
-          <option value="none" {% if values.auth_mode == 'none' %}selected{% endif %}>None (privacy default)</option>
-          <option value="browser-cookies" {% if values.auth_mode == 'browser-cookies' %}selected{% endif %}>Use browser cookies</option>
-          <option value="cookies-file" {% if values.auth_mode == 'cookies-file' %}selected{% endif %}>Use cookies file</option>
-        </select>
-      </label>
-      <label>
-        Browser cookies source
-        <input type="text" name="cookies_from_browser" value="{{ values.cookies_from_browser }}" placeholder="chrome | firefox | edge">
-      </label>
-      <label>
-        Cookies file path
-        <input type="text" name="cookies_file" value="{{ values.cookies_file }}" placeholder="/path/to/cookies.txt">
-      </label>
     </div>
 
     <div class="actions wrap-actions">
@@ -140,7 +113,7 @@ https://example.com/page-two">{{ values.urls_text }}</textarea>
       <button type="submit">Install / Upgrade Dependencies</button>
     </form>
   </div>
-  <p class="help-text">This tool supports public or authorized content access only; it does not bypass paywalls, account gates, or age checks. Resilient mode only increases retries and compatible client behaviors for legitimate access. Instagram mode applies extractor/header tuning and works best with authorized cookies when media is account-gated.</p>
+  <p class="help-text">This tool supports public or authorized content access only; it does not bypass paywalls, account gates, or age checks. Resilient mode only increases retries and compatible client behaviors for legitimate access.</p>
 </section>
 
 

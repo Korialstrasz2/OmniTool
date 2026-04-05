@@ -69,77 +69,6 @@ class Candidate:
     source: str
 
 
-@dataclass(frozen=True)
-class AuthConfig:
-    mode: str
-    cookies_from_browser: str
-    cookies_file: str
-
-
-def detect_service_profile(url: str, configured_profile: str) -> str:
-    if configured_profile != "auto":
-        return configured_profile
-    host = urlparse(url).netloc.lower()
-    if "instagram.com" in host:
-        return "instagram"
-    if "tiktok.com" in host:
-        return "tiktok"
-    if "x.com" in host or "twitter.com" in host:
-        return "x"
-    if "youtube.com" in host or "youtu.be" in host:
-        return "youtube"
-    return "generic"
-
-
-def ytdlp_profile_args(profile: str, target_url: str) -> list[str]:
-    """Return deterministic yt-dlp tuning args for known services."""
-    if profile == "instagram":
-        return [
-            "--extractor-args",
-            "instagram:api=graphql",
-            "--add-header",
-            "Referer:https://www.instagram.com/",
-            "--add-header",
-            "Origin:https://www.instagram.com",
-            "--sleep-requests",
-            "1",
-        ]
-    if profile == "tiktok":
-        return ["--add-header", "Referer:https://www.tiktok.com/", "--sleep-requests", "1"]
-    if profile == "x":
-        return ["--add-header", "Referer:https://x.com/"]
-    if profile == "youtube":
-        return ["--sleep-requests", "1"]
-    return []
-
-
-def validate_auth_config(auth: AuthConfig) -> tuple[bool, str | None]:
-    """Deterministically enforce auth defaults for privacy-safe operation."""
-    if auth.mode == "none":
-        if auth.cookies_from_browser or auth.cookies_file:
-            return False, "POLICY_BLOCKED_AUTH: auth mode is none but cookie inputs were supplied"
-        return True, None
-    if auth.mode == "browser-cookies":
-        if not auth.cookies_from_browser:
-            return False, "POLICY_BLOCKED_AUTH: browser-cookies mode requires --cookies-from-browser"
-        if auth.cookies_file:
-            return False, "POLICY_BLOCKED_AUTH: browser-cookies mode cannot be combined with --cookies-file"
-        return True, None
-    if auth.mode == "cookies-file":
-        if not auth.cookies_file:
-            return False, "POLICY_BLOCKED_AUTH: cookies-file mode requires --cookies-file"
-        return True, None
-    return False, f"POLICY_BLOCKED_AUTH: unsupported auth mode {auth.mode}"
-
-
-def ytdlp_auth_args(auth: AuthConfig) -> list[str]:
-    if auth.mode == "browser-cookies":
-        return ["--cookies-from-browser", auth.cookies_from_browser]
-    if auth.mode == "cookies-file":
-        return ["--cookies", auth.cookies_file]
-    return []
-
-
 def load_defaults() -> dict[str, object]:
     if not DEFAULTS_FILE.exists():
         return {}
@@ -387,7 +316,7 @@ def list_impersonate_targets() -> list[str]:
 
 def build_session(proxy: str | None, timeout: float) -> requests.Session:
     session = requests.Session()
-    session.headers.update({"User-Agent": USER_AGENT, "DNT": "1"})
+    session.headers.update({"User-Agent": USER_AGENT})
     if proxy:
         session.proxies = {"http": proxy, "https": proxy}
     adapter = requests.adapters.HTTPAdapter(pool_connections=20, pool_maxsize=20)
@@ -574,8 +503,6 @@ def run_yt_dlp_with_strategies(
     timeout: float,
     proxy: str | None,
     access_strategy: str,
-    service_profile: str,
-    auth: AuthConfig,
     impersonation_targets: list[str] | None = None,
     allow_auto_install: bool = True,
 ) -> tuple[bool, str]:
@@ -590,8 +517,6 @@ def run_yt_dlp_with_strategies(
         return False, "yt-dlp not installed"
 
     output_template = str(out_dir / "%(title).120s_%(id)s.%(ext)s")
-    profile_args = ytdlp_profile_args(service_profile, url)
-    auth_args = ytdlp_auth_args(auth)
     base_cmd = cmd_prefix + [
         "--no-overwrites",
         "--no-playlist",
@@ -607,8 +532,6 @@ def run_yt_dlp_with_strategies(
         base_cmd.extend(["--merge-output-format", "mp4"])
     if proxy:
         base_cmd.extend(["--proxy", proxy])
-    base_cmd.extend(profile_args)
-    base_cmd.extend(auth_args)
 
     if impersonation_targets is None:
         impersonation_targets = list_impersonate_targets()
@@ -670,8 +593,6 @@ def run_yt_dlp_with_strategies(
                 timeout,
                 proxy,
                 "resilient",
-                service_profile,
-                auth,
                 impersonation_targets=refreshed_targets,
                 allow_auto_install=False,
             )
@@ -718,8 +639,6 @@ def run_yt_dlp_all_resolutions(
     timeout: float,
     proxy: str | None,
     access_strategy: str,
-    service_profile: str,
-    auth: AuthConfig,
 ) -> tuple[int, int, list[str]]:
     """Download every available video resolution by enumerating yt-dlp formats."""
     cmd_prefix = yt_dlp_command()
@@ -731,7 +650,7 @@ def run_yt_dlp_all_resolutions(
     if impersonation_targets:
         impersonation_args = ["--impersonate", impersonation_targets[0]]
 
-    list_cmd = cmd_prefix + ["--list-formats"] + ytdlp_profile_args(service_profile, url) + ytdlp_auth_args(auth) + impersonation_args + [url]
+    list_cmd = cmd_prefix + ["--list-formats"] + impersonation_args + [url]
     if proxy:
         list_cmd.extend(["--proxy", proxy])
 
@@ -746,7 +665,7 @@ def run_yt_dlp_all_resolutions(
             impersonation_targets = list_impersonate_targets()
             if impersonation_targets:
                 impersonation_args = ["--impersonate", impersonation_targets[0]]
-                list_cmd = cmd_prefix + ["--list-formats"] + ytdlp_profile_args(service_profile, url) + ytdlp_auth_args(auth) + impersonation_args + [url]
+                list_cmd = cmd_prefix + ["--list-formats"] + impersonation_args + [url]
                 if proxy:
                     list_cmd.extend(["--proxy", proxy])
                 listed = subprocess.run(list_cmd, capture_output=True, text=True, timeout=max(timeout, 60))
@@ -775,7 +694,7 @@ def run_yt_dlp_all_resolutions(
     failed = 0
     for resolution, fmt_id in sorted(selected_formats.items()):
         output_template = str(out_dir / f"%(title).120s_%(id)s_{resolution}.%(ext)s")
-        cmd = cmd_prefix + ytdlp_profile_args(service_profile, url) + ytdlp_auth_args(auth) + impersonation_args + [
+        cmd = cmd_prefix + impersonation_args + [
             "--no-overwrites",
             "--restrict-filenames",
             "--write-info-json",
@@ -853,20 +772,6 @@ def main() -> int:
         default=str(defaults.get("access_strategy", "standard")),
         help="Authorized access strategy for yt-dlp (resilient adds retries and browser impersonation).",
     )
-    parser.add_argument(
-        "--service-profile",
-        choices=["auto", "generic", "instagram", "tiktok", "x", "youtube"],
-        default=str(defaults.get("service_profile", "auto")),
-        help="Service-specific download tuning. auto detects by URL host.",
-    )
-    parser.add_argument(
-        "--auth-mode",
-        choices=["none", "browser-cookies", "cookies-file"],
-        default=str(defaults.get("auth_mode", "none")),
-        help="Authorized authentication mode. Default is none (privacy-first).",
-    )
-    parser.add_argument("--cookies-from-browser", default=str(defaults.get("cookies_from_browser", "")), help="Browser profile for yt-dlp cookie import, e.g. chrome or firefox")
-    parser.add_argument("--cookies-file", default=str(defaults.get("cookies_file", "")), help="Netscape cookie file path for authorized access")
     parser.add_argument("--save-defaults", action="store_true", help="Save current options as defaults")
     args = parser.parse_args()
 
@@ -881,10 +786,6 @@ def main() -> int:
             "diagnostics": args.diagnostics,
             "download_all_resolutions": args.download_all_resolutions,
             "access_strategy": args.access_strategy,
-            "service_profile": args.service_profile,
-            "auth_mode": args.auth_mode,
-            "cookies_from_browser": args.cookies_from_browser,
-            "cookies_file": args.cookies_file,
         })
         print(msg)
         if not ok:
@@ -920,14 +821,6 @@ def main() -> int:
         return 1
     if not args.url:
         return 0
-
-    auth = AuthConfig(mode=args.auth_mode, cookies_from_browser=args.cookies_from_browser.strip(), cookies_file=args.cookies_file.strip())
-    valid_auth, auth_error = validate_auth_config(auth)
-    if not valid_auth:
-        print(auth_error)
-        return 3
-
-    active_profile = detect_service_profile(args.url, args.service_profile)
 
     anonymize_notice(args.proxy)
     if not args.skip_launch_check:
@@ -976,8 +869,7 @@ def main() -> int:
             return candidate.url, False, "not media"
 
         if candidate.url.lower().endswith(".m3u8") or "m3u8" in candidate.url.lower():
-            candidate_profile = detect_service_profile(candidate.url, args.service_profile)
-            ok, msg = run_yt_dlp_with_strategies(candidate.url, out_dir, args.timeout, args.proxy, args.access_strategy, candidate_profile, auth)
+            ok, msg = run_yt_dlp_with_strategies(candidate.url, out_dir, args.timeout, args.proxy, args.access_strategy)
             if ok:
                 return candidate.url, True, msg
             ff_ok, ff_msg = run_ffmpeg_hls(candidate.url, out_dir, args.timeout, args.proxy)
@@ -989,8 +881,7 @@ def main() -> int:
         if ok:
             return candidate.url, True, msg
 
-        candidate_profile = detect_service_profile(candidate.url, args.service_profile)
-        ok2, msg2 = run_yt_dlp_with_strategies(candidate.url, out_dir, args.timeout, args.proxy, args.access_strategy, candidate_profile, auth)
+        ok2, msg2 = run_yt_dlp_with_strategies(candidate.url, out_dir, args.timeout, args.proxy, args.access_strategy)
         return candidate.url, ok2, msg2 if ok2 else f"{msg}; ytdlp: {msg2}"
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(args.workers, 1)) as pool:
@@ -1009,7 +900,7 @@ def main() -> int:
                 print(f"[FAIL] {url} -> {message}")
 
     if args.include_page_with_ytdlp or args.all_page:
-        ok, msg = run_yt_dlp_with_strategies(args.url, out_dir, max(args.timeout * 2, 90), args.proxy, args.access_strategy, active_profile, auth)
+        ok, msg = run_yt_dlp_with_strategies(args.url, out_dir, max(args.timeout * 2, 90), args.proxy, args.access_strategy)
         if ok:
             success_count += 1
             print(f"[OK] page-url -> {msg}")
@@ -1022,7 +913,7 @@ def main() -> int:
                 print(f"[FAIL] page-url -> {msg}")
 
     if args.download_all_resolutions:
-        res_ok, res_fail, debug_lines = run_yt_dlp_all_resolutions(args.url, out_dir, max(args.timeout * 2, 120), args.proxy, args.access_strategy, active_profile, auth)
+        res_ok, res_fail, debug_lines = run_yt_dlp_all_resolutions(args.url, out_dir, max(args.timeout * 2, 120), args.proxy, args.access_strategy)
         success_count += res_ok
         failure_count += res_fail
         for line in debug_lines:
@@ -1035,12 +926,10 @@ def main() -> int:
         print(f"Timeout        : {args.timeout}")
         print(f"Proxy          : {args.proxy or 'none'}")
         print(f"Access strategy: {args.access_strategy}")
-        print(f"Service profile: {active_profile} (requested={args.service_profile})")
-        print(f"Auth mode      : {args.auth_mode}")
         print(f"Candidates     : {len(candidates)}")
         cmd_prefix = yt_dlp_command()
         if cmd_prefix:
-            probe = subprocess.run(cmd_prefix + ytdlp_profile_args(active_profile, args.url) + ytdlp_auth_args(auth) + ["--list-formats", args.url], capture_output=True, text=True, timeout=max(args.timeout, 90))
+            probe = subprocess.run(cmd_prefix + ["--list-formats", args.url], capture_output=True, text=True, timeout=max(args.timeout, 90))
             print("Format probe rc:", probe.returncode)
             print((probe.stdout or probe.stderr)[-4000:])
 
@@ -1048,8 +937,6 @@ def main() -> int:
     print(f"Output folder : {out_dir}")
     print(f"Successful    : {success_count}")
     print(f"Failed        : {failure_count}")
-    print(f"Service profile: {active_profile}")
-    print(f"Auth mode      : {args.auth_mode}")
     print("Use only on content you are allowed to download.")
     return 0 if success_count > 0 or not candidates else 2
 
