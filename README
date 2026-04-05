@@ -74,4 +74,9 @@ OmniTool includes a **Media Harvester** page that can discover media URLs on a p
 
 Features include dependency launch checks, optional `yt-dlp` auto-install, parallel workers, proxy support, and preview-only mode.
 
+New profile/auth controls are available for tougher services:
+- **Service profile** (`auto`, `instagram`, etc.) applies deterministic per-site yt-dlp tuning.
+- **Auth mode** is default-deny (`none`) and only enables cookies when explicitly configured (`browser-cookies` or `cookies-file`).
+- Privacy policy enforcement is deterministic in app logic: invalid auth combinations are blocked before download starts.
+
 > Privacy and safety note: the tool supports privacy-oriented options (for example a SOCKS proxy), but no tool can guarantee complete anonymity or guarantee that remote content is malware-free.
