@@ -239,10 +239,6 @@ def media_harvester():
         'all_page': '1' if defaults.get('all_page', False) else '',
         'all_scroll': '1' if defaults.get('all_scroll', False) else '',
         'access_strategy': str(defaults.get('access_strategy', 'standard')),
-        'service_profile': str(defaults.get('service_profile', 'auto')),
-        'auth_mode': str(defaults.get('auth_mode', 'none')),
-        'cookies_from_browser': str(defaults.get('cookies_from_browser', '')),
-        'cookies_file': str(defaults.get('cookies_file', '')),
         'passive_page_url': str(defaults.get('passive_page_url', '')),
         'passive_output_dir': str(defaults.get('passive_output_dir', SCRIPTS_DIR / 'media_downloads')),
         'passive_mode': str(defaults.get('passive_mode', 'slow')),
@@ -320,18 +316,10 @@ def media_harvester():
             'all_page': '1' if request.form.get('all_page') else '',
             'all_scroll': '1' if request.form.get('all_scroll') else '',
             'access_strategy': request.form.get('access_strategy', values['access_strategy']).strip() or 'standard',
-            'service_profile': request.form.get('service_profile', values['service_profile']).strip() or 'auto',
-            'auth_mode': request.form.get('auth_mode', values['auth_mode']).strip() or 'none',
-            'cookies_from_browser': request.form.get('cookies_from_browser', values['cookies_from_browser']).strip(),
-            'cookies_file': request.form.get('cookies_file', values['cookies_file']).strip(),
         })
 
         if values['access_strategy'] not in {'standard', 'resilient'}:
             values['access_strategy'] = 'standard'
-        if values['service_profile'] not in {'auto', 'generic', 'instagram', 'tiktok', 'x', 'youtube'}:
-            values['service_profile'] = 'auto'
-        if values['auth_mode'] not in {'none', 'browser-cookies', 'cookies-file'}:
-            values['auth_mode'] = 'none'
 
         if request.form.get('save_defaults'):
             payload = {
@@ -346,10 +334,6 @@ def media_harvester():
                 'all_page': bool(values['all_page']),
                 'all_scroll': bool(values['all_scroll']),
                 'access_strategy': values['access_strategy'],
-                'service_profile': values['service_profile'],
-                'auth_mode': values['auth_mode'],
-                'cookies_from_browser': values['cookies_from_browser'],
-                'cookies_file': values['cookies_file'],
                 'passive_page_url': values['passive_page_url'],
                 'passive_output_dir': values['passive_output_dir'],
                 'passive_mode': values['passive_mode'],
@@ -402,12 +386,6 @@ def media_harvester():
                 if values['all_scroll']:
                     command.append('--all-scroll')
                 command.extend(['--access-strategy', values['access_strategy']])
-                command.extend(['--service-profile', values['service_profile']])
-                command.extend(['--auth-mode', values['auth_mode']])
-                if values['cookies_from_browser']:
-                    command.extend(['--cookies-from-browser', values['cookies_from_browser']])
-                if values['cookies_file']:
-                    command.extend(['--cookies-file', values['cookies_file']])
 
                 try:
                     completed = subprocess.run(
