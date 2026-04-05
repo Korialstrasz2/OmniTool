@@ -57,6 +57,27 @@ https://example.com/page-two">{{ values.urls_text }}</textarea>
         </select>
       </label>
       <label>
+        Site profile
+        <select name="site_profile">
+          <option value="auto" {% if values.site_profile == 'auto' %}selected{% endif %}>Auto detect</option>
+          <option value="generic" {% if values.site_profile == 'generic' %}selected{% endif %}>Generic web</option>
+          <option value="instagram" {% if values.site_profile == 'instagram' %}selected{% endif %}>Instagram optimized</option>
+          <option value="social-auth" {% if values.site_profile == 'social-auth' %}selected{% endif %}>Social authenticated</option>
+        </select>
+      </label>
+      <label>
+        Browser cookies
+        <select name="browser_cookies">
+          <option value="auto" {% if values.browser_cookies == 'auto' %}selected{% endif %}>Auto for profile</option>
+          <option value="none" {% if values.browser_cookies == 'none' %}selected{% endif %}>None</option>
+          <option value="chrome" {% if values.browser_cookies == 'chrome' %}selected{% endif %}>Chrome</option>
+          <option value="chromium" {% if values.browser_cookies == 'chromium' %}selected{% endif %}>Chromium</option>
+          <option value="firefox" {% if values.browser_cookies == 'firefox' %}selected{% endif %}>Firefox</option>
+          <option value="edge" {% if values.browser_cookies == 'edge' %}selected{% endif %}>Edge</option>
+          <option value="safari" {% if values.browser_cookies == 'safari' %}selected{% endif %}>Safari</option>
+        </select>
+      </label>
+      <label>
         All page!
         <select name="all_page">
           <option value="1" {% if values.all_page %}selected{% endif %}>Enabled</option>
@@ -114,6 +135,7 @@ https://example.com/page-two">{{ values.urls_text }}</textarea>
     </form>
   </div>
   <p class="help-text">This tool supports public or authorized content access only; it does not bypass paywalls, account gates, or age checks. Resilient mode only increases retries and compatible client behaviors for legitimate access.</p>
+  <p class="help-text">For Instagram and similar services, choose <strong>Instagram optimized</strong> or <strong>Social authenticated</strong> and keep browser cookies enabled so yt-dlp can reuse your logged-in browser session.</p>
 </section>
 
 

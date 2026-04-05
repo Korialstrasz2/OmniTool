@@ -239,6 +239,8 @@ def media_harvester():
         'all_page': '1' if defaults.get('all_page', False) else '',
         'all_scroll': '1' if defaults.get('all_scroll', False) else '',
         'access_strategy': str(defaults.get('access_strategy', 'standard')),
+        'site_profile': str(defaults.get('site_profile', 'auto')),
+        'browser_cookies': str(defaults.get('browser_cookies', 'auto')),
         'passive_page_url': str(defaults.get('passive_page_url', '')),
         'passive_output_dir': str(defaults.get('passive_output_dir', SCRIPTS_DIR / 'media_downloads')),
         'passive_mode': str(defaults.get('passive_mode', 'slow')),
@@ -316,10 +318,16 @@ def media_harvester():
             'all_page': '1' if request.form.get('all_page') else '',
             'all_scroll': '1' if request.form.get('all_scroll') else '',
             'access_strategy': request.form.get('access_strategy', values['access_strategy']).strip() or 'standard',
+            'site_profile': request.form.get('site_profile', values['site_profile']).strip() or 'auto',
+            'browser_cookies': request.form.get('browser_cookies', values['browser_cookies']).strip() or 'auto',
         })
 
         if values['access_strategy'] not in {'standard', 'resilient'}:
             values['access_strategy'] = 'standard'
+        if values['site_profile'] not in {'auto', 'generic', 'instagram', 'social-auth'}:
+            values['site_profile'] = 'auto'
+        if values['browser_cookies'] not in {'none', 'auto', 'chrome', 'firefox', 'edge', 'safari', 'chromium'}:
+            values['browser_cookies'] = 'auto'
 
         if request.form.get('save_defaults'):
             payload = {
@@ -334,6 +342,8 @@ def media_harvester():
                 'all_page': bool(values['all_page']),
                 'all_scroll': bool(values['all_scroll']),
                 'access_strategy': values['access_strategy'],
+                'site_profile': values['site_profile'],
+                'browser_cookies': values['browser_cookies'],
                 'passive_page_url': values['passive_page_url'],
                 'passive_output_dir': values['passive_output_dir'],
                 'passive_mode': values['passive_mode'],
@@ -386,6 +396,8 @@ def media_harvester():
                 if values['all_scroll']:
                     command.append('--all-scroll')
                 command.extend(['--access-strategy', values['access_strategy']])
+                command.extend(['--site-profile', values['site_profile']])
+                command.extend(['--browser-cookies', values['browser_cookies']])
 
                 try:
                     completed = subprocess.run(

@@ -29,6 +29,10 @@ USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
+MOBILE_USER_AGENT = (
+    "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.6367.179 Mobile Safari/537.36"
+)
 DEFAULTS_FILE = Path(__file__).with_name("media_harvester_defaults.json")
 
 MEDIA_EXTENSIONS = {
@@ -67,6 +71,46 @@ class Candidate:
     url: str
     kind: str
     source: str
+
+
+def classify_site_profile(url: str, requested_profile: str) -> str:
+    """Resolve an effective site profile from URL + user preference."""
+    if requested_profile != "auto":
+        return requested_profile
+    host = urlparse(url).netloc.lower()
+    if any(token in host for token in ("instagram.com", "instagr.am")):
+        return "instagram"
+    if any(token in host for token in ("facebook.com", "tiktok.com", "x.com", "twitter.com")):
+        return "social-auth"
+    return "generic"
+
+
+def profile_headers(profile: str, page_url: str) -> dict[str, str]:
+    """Headers tuned for publicly accessible or account-authorized media fetches."""
+    if profile in {"instagram", "social-auth"}:
+        parsed = urlparse(page_url)
+        origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else page_url
+        return {
+            "User-Agent": MOBILE_USER_AGENT if profile == "instagram" else USER_AGENT,
+            "Referer": origin + "/",
+            "Origin": origin,
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+    return {"User-Agent": USER_AGENT}
+
+
+def browser_cookie_argument(browser_cookies: str, profile: str) -> list[str]:
+    """Build yt-dlp --cookies-from-browser argument for authorized sessions."""
+    if browser_cookies == "none":
+        return []
+    if browser_cookies == "auto":
+        if profile == "instagram":
+            # Chrome/Chromium cookies are the most common working option for IG.
+            return ["--cookies-from-browser", "chrome"]
+        if profile == "social-auth":
+            return ["--cookies-from-browser", "firefox"]
+        return []
+    return ["--cookies-from-browser", browser_cookies]
 
 
 def load_defaults() -> dict[str, object]:
@@ -314,9 +358,9 @@ def list_impersonate_targets() -> list[str]:
     return list(dict.fromkeys(targets))
 
 
-def build_session(proxy: str | None, timeout: float) -> requests.Session:
+def build_session(proxy: str | None, timeout: float, headers: dict[str, str] | None = None) -> requests.Session:
     session = requests.Session()
-    session.headers.update({"User-Agent": USER_AGENT})
+    session.headers.update(headers or {"User-Agent": USER_AGENT})
     if proxy:
         session.proxies = {"http": proxy, "https": proxy}
     adapter = requests.adapters.HTTPAdapter(pool_connections=20, pool_maxsize=20)
@@ -465,7 +509,14 @@ def run_ffmpeg_hls(url: str, out_dir: Path, timeout: float, proxy: str | None) -
         return False, "ffmpeg timeout"
 
 
-def run_yt_dlp(url: str, out_dir: Path, timeout: float, proxy: str | None) -> tuple[bool, str]:
+def run_yt_dlp(
+    url: str,
+    out_dir: Path,
+    timeout: float,
+    proxy: str | None,
+    profile: str = "generic",
+    browser_cookies: str = "none",
+) -> tuple[bool, str]:
     cmd_prefix = yt_dlp_command()
     if not cmd_prefix:
         return False, "yt-dlp not installed"
@@ -487,6 +538,11 @@ def run_yt_dlp(url: str, out_dir: Path, timeout: float, proxy: str | None) -> tu
         cmd.extend(["--merge-output-format", "mp4"])
     if proxy:
         cmd.extend(["--proxy", proxy])
+    cmd.extend(browser_cookie_argument(browser_cookies, profile))
+    if profile == "instagram":
+        cmd.extend(["--add-header", "User-Agent:Mozilla/5.0 (Linux; Android 14; Mobile)"])
+    if profile in {"instagram", "social-auth"}:
+        cmd.extend(["--extractor-args", "instagram:api_version=v1"])
 
     try:
         completed = subprocess.run(cmd, capture_output=True, text=True, timeout=max(timeout, 180))
@@ -503,6 +559,8 @@ def run_yt_dlp_with_strategies(
     timeout: float,
     proxy: str | None,
     access_strategy: str,
+    profile: str = "generic",
+    browser_cookies: str = "none",
     impersonation_targets: list[str] | None = None,
     allow_auto_install: bool = True,
 ) -> tuple[bool, str]:
@@ -532,6 +590,11 @@ def run_yt_dlp_with_strategies(
         base_cmd.extend(["--merge-output-format", "mp4"])
     if proxy:
         base_cmd.extend(["--proxy", proxy])
+    base_cmd.extend(browser_cookie_argument(browser_cookies, profile))
+    if profile in {"instagram", "social-auth"}:
+        base_cmd.extend(["--extractor-args", "instagram:api_version=v1"])
+    if profile == "instagram":
+        base_cmd.extend(["--add-header", "User-Agent:Mozilla/5.0 (Linux; Android 14; Mobile)"])
 
     if impersonation_targets is None:
         impersonation_targets = list_impersonate_targets()
@@ -593,6 +656,8 @@ def run_yt_dlp_with_strategies(
                 timeout,
                 proxy,
                 "resilient",
+                profile=profile,
+                browser_cookies=browser_cookies,
                 impersonation_targets=refreshed_targets,
                 allow_auto_install=False,
             )
@@ -639,6 +704,8 @@ def run_yt_dlp_all_resolutions(
     timeout: float,
     proxy: str | None,
     access_strategy: str,
+    profile: str = "generic",
+    browser_cookies: str = "none",
 ) -> tuple[int, int, list[str]]:
     """Download every available video resolution by enumerating yt-dlp formats."""
     cmd_prefix = yt_dlp_command()
@@ -650,7 +717,11 @@ def run_yt_dlp_all_resolutions(
     if impersonation_targets:
         impersonation_args = ["--impersonate", impersonation_targets[0]]
 
-    list_cmd = cmd_prefix + ["--list-formats"] + impersonation_args + [url]
+    list_cmd = cmd_prefix + ["--list-formats"] + impersonation_args
+    list_cmd.extend(browser_cookie_argument(browser_cookies, profile))
+    if profile in {"instagram", "social-auth"}:
+        list_cmd.extend(["--extractor-args", "instagram:api_version=v1"])
+    list_cmd.append(url)
     if proxy:
         list_cmd.extend(["--proxy", proxy])
 
@@ -665,7 +736,11 @@ def run_yt_dlp_all_resolutions(
             impersonation_targets = list_impersonate_targets()
             if impersonation_targets:
                 impersonation_args = ["--impersonate", impersonation_targets[0]]
-                list_cmd = cmd_prefix + ["--list-formats"] + impersonation_args + [url]
+                list_cmd = cmd_prefix + ["--list-formats"] + impersonation_args
+                list_cmd.extend(browser_cookie_argument(browser_cookies, profile))
+                if profile in {"instagram", "social-auth"}:
+                    list_cmd.extend(["--extractor-args", "instagram:api_version=v1"])
+                list_cmd.append(url)
                 if proxy:
                     list_cmd.extend(["--proxy", proxy])
                 listed = subprocess.run(list_cmd, capture_output=True, text=True, timeout=max(timeout, 60))
@@ -703,8 +778,11 @@ def run_yt_dlp_all_resolutions(
             f"{fmt_id}+bestaudio/best",
             "--output",
             output_template,
-            url,
         ]
+        cmd.extend(browser_cookie_argument(browser_cookies, profile))
+        if profile in {"instagram", "social-auth"}:
+            cmd.extend(["--extractor-args", "instagram:api_version=v1"])
+        cmd.append(url)
         if command_exists("ffmpeg"):
             cmd.extend(["--merge-output-format", "mp4"])
         if proxy:
@@ -772,6 +850,18 @@ def main() -> int:
         default=str(defaults.get("access_strategy", "standard")),
         help="Authorized access strategy for yt-dlp (resilient adds retries and browser impersonation).",
     )
+    parser.add_argument(
+        "--site-profile",
+        choices=["auto", "generic", "instagram", "social-auth"],
+        default=str(defaults.get("site_profile", "auto")),
+        help="Service-specific profile with tuned headers/cookie usage for authorized access.",
+    )
+    parser.add_argument(
+        "--browser-cookies",
+        choices=["none", "auto", "chrome", "firefox", "edge", "safari", "chromium"],
+        default=str(defaults.get("browser_cookies", "auto")),
+        help="Pass authorized browser session cookies to yt-dlp when a service requires login.",
+    )
     parser.add_argument("--save-defaults", action="store_true", help="Save current options as defaults")
     args = parser.parse_args()
 
@@ -786,6 +876,8 @@ def main() -> int:
             "diagnostics": args.diagnostics,
             "download_all_resolutions": args.download_all_resolutions,
             "access_strategy": args.access_strategy,
+            "site_profile": args.site_profile,
+            "browser_cookies": args.browser_cookies,
         })
         print(msg)
         if not ok:
@@ -835,7 +927,13 @@ def main() -> int:
     out_dir = Path(args.output).expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    session = build_session(proxy=args.proxy, timeout=args.timeout)
+    effective_profile = classify_site_profile(args.url, args.site_profile)
+    headers = profile_headers(effective_profile, args.url)
+    print(
+        f"Using site profile: {effective_profile} "
+        f"(requested: {args.site_profile}, cookies: {args.browser_cookies})"
+    )
+    session = build_session(proxy=args.proxy, timeout=args.timeout, headers=headers)
     try:
         candidates = collect_candidates(session, args.url, args.timeout)
     except Exception as exc:
@@ -869,7 +967,15 @@ def main() -> int:
             return candidate.url, False, "not media"
 
         if candidate.url.lower().endswith(".m3u8") or "m3u8" in candidate.url.lower():
-            ok, msg = run_yt_dlp_with_strategies(candidate.url, out_dir, args.timeout, args.proxy, args.access_strategy)
+            ok, msg = run_yt_dlp_with_strategies(
+                candidate.url,
+                out_dir,
+                args.timeout,
+                args.proxy,
+                args.access_strategy,
+                profile=effective_profile,
+                browser_cookies=args.browser_cookies,
+            )
             if ok:
                 return candidate.url, True, msg
             ff_ok, ff_msg = run_ffmpeg_hls(candidate.url, out_dir, args.timeout, args.proxy)
@@ -881,7 +987,15 @@ def main() -> int:
         if ok:
             return candidate.url, True, msg
 
-        ok2, msg2 = run_yt_dlp_with_strategies(candidate.url, out_dir, args.timeout, args.proxy, args.access_strategy)
+        ok2, msg2 = run_yt_dlp_with_strategies(
+            candidate.url,
+            out_dir,
+            args.timeout,
+            args.proxy,
+            args.access_strategy,
+            profile=effective_profile,
+            browser_cookies=args.browser_cookies,
+        )
         return candidate.url, ok2, msg2 if ok2 else f"{msg}; ytdlp: {msg2}"
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(args.workers, 1)) as pool:
@@ -900,7 +1014,15 @@ def main() -> int:
                 print(f"[FAIL] {url} -> {message}")
 
     if args.include_page_with_ytdlp or args.all_page:
-        ok, msg = run_yt_dlp_with_strategies(args.url, out_dir, max(args.timeout * 2, 90), args.proxy, args.access_strategy)
+        ok, msg = run_yt_dlp_with_strategies(
+            args.url,
+            out_dir,
+            max(args.timeout * 2, 90),
+            args.proxy,
+            args.access_strategy,
+            profile=effective_profile,
+            browser_cookies=args.browser_cookies,
+        )
         if ok:
             success_count += 1
             print(f"[OK] page-url -> {msg}")
@@ -913,7 +1035,15 @@ def main() -> int:
                 print(f"[FAIL] page-url -> {msg}")
 
     if args.download_all_resolutions:
-        res_ok, res_fail, debug_lines = run_yt_dlp_all_resolutions(args.url, out_dir, max(args.timeout * 2, 120), args.proxy, args.access_strategy)
+        res_ok, res_fail, debug_lines = run_yt_dlp_all_resolutions(
+            args.url,
+            out_dir,
+            max(args.timeout * 2, 120),
+            args.proxy,
+            args.access_strategy,
+            profile=effective_profile,
+            browser_cookies=args.browser_cookies,
+        )
         success_count += res_ok
         failure_count += res_fail
         for line in debug_lines:
@@ -926,6 +1056,8 @@ def main() -> int:
         print(f"Timeout        : {args.timeout}")
         print(f"Proxy          : {args.proxy or 'none'}")
         print(f"Access strategy: {args.access_strategy}")
+        print(f"Site profile   : {effective_profile} (requested: {args.site_profile})")
+        print(f"Browser cookies: {args.browser_cookies}")
         print(f"Candidates     : {len(candidates)}")
         cmd_prefix = yt_dlp_command()
         if cmd_prefix:
