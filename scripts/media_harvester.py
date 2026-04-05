@@ -61,6 +61,25 @@ MEDIA_EXTENSIONS = {
     ".pptx",
 }
 
+SENSITIVE_QUERY_KEYS = {
+    "token",
+    "access_token",
+    "auth",
+    "authorization",
+    "session",
+    "sessionid",
+    "sid",
+    "key",
+    "apikey",
+    "api_key",
+    "password",
+    "passwd",
+    "email",
+    "phone",
+}
+
+SOCIAL_REFERER = "https://www.instagram.com/"
+
 
 @dataclass(frozen=True)
 class Candidate:
@@ -314,9 +333,17 @@ def list_impersonate_targets() -> list[str]:
     return list(dict.fromkeys(targets))
 
 
-def build_session(proxy: str | None, timeout: float) -> requests.Session:
+def build_session(proxy: str | None, timeout: float, site_mode: str = "general") -> requests.Session:
     session = requests.Session()
     session.headers.update({"User-Agent": USER_AGENT})
+    if site_mode == "instagram-public":
+        session.headers.update(
+            {
+                "Referer": SOCIAL_REFERER,
+                "Origin": SOCIAL_REFERER.rstrip("/"),
+                "Accept-Language": "en-US,en;q=0.9",
+            }
+        )
     if proxy:
         session.proxies = {"http": proxy, "https": proxy}
     adapter = requests.adapters.HTTPAdapter(pool_connections=20, pool_maxsize=20)
@@ -339,7 +366,37 @@ def normalize_candidate(url: str, base_url: str) -> str:
     return cleaned
 
 
-def extract_from_html(page_html: str, base_url: str) -> list[Candidate]:
+def sanitize_url_for_logs(raw_url: str) -> str:
+    parsed = urlparse(raw_url)
+    if not parsed.query:
+        return raw_url
+    sanitized: list[str] = []
+    for item in parsed.query.split("&"):
+        if "=" not in item:
+            sanitized.append(item)
+            continue
+        key, value = item.split("=", 1)
+        if key.lower() in SENSITIVE_QUERY_KEYS:
+            sanitized.append(f"{key}=REDACTED")
+        else:
+            sanitized.append(f"{key}={value}")
+    return parsed._replace(query="&".join(sanitized)).geturl()
+
+
+def url_violates_privacy_policy(raw_url: str) -> bool:
+    parsed = urlparse(raw_url)
+    if parsed.username or parsed.password:
+        return True
+    for item in parsed.query.split("&"):
+        if "=" not in item:
+            continue
+        key, _value = item.split("=", 1)
+        if key.lower() in SENSITIVE_QUERY_KEYS:
+            return True
+    return False
+
+
+def extract_from_html(page_html: str, base_url: str, include_all_html_media: bool = False) -> list[Candidate]:
     candidates: list[Candidate] = []
 
     patterns = {
@@ -348,10 +405,14 @@ def extract_from_html(page_html: str, base_url: str) -> list[Candidate]:
         "meta": r"<meta[^>]+content=['\"]([^'\"]+)['\"]",
         "json": r"https?://[^\s'\"<>]+",
         "hls": r"https?://[^\s'\"<>]+\.m3u8(?:\?[^'\"\s<>]*)?",
+        "css-url": r"url\((['\"]?)(https?://[^)'\"]+)\1\)",
+        "link-href": r"<link[^>]+href=['\"]([^'\"]+)['\"]",
     }
 
     for source, pattern in patterns.items():
         for match in re.findall(pattern, page_html, flags=re.IGNORECASE):
+            if isinstance(match, tuple):
+                match = match[-1]
             if source == "srcset":
                 for chunk in match.split(","):
                     part = chunk.strip().split(" ")[0].strip()
@@ -364,7 +425,13 @@ def extract_from_html(page_html: str, base_url: str) -> list[Candidate]:
     seen: set[str] = set()
     for item in candidates:
         lower_url = item.url.lower()
-        if any(ext in lower_url for ext in MEDIA_EXTENSIONS) or "m3u8" in lower_url:
+        media_match = any(ext in lower_url for ext in MEDIA_EXTENSIONS) or "m3u8" in lower_url
+        if include_all_html_media and (
+            any(token in lower_url for token in ("/image", "/video", "/audio"))
+            or any(ext in lower_url for ext in (".avif", ".heic", ".jfif"))
+        ):
+            media_match = True
+        if media_match:
             if item.url not in seen:
                 filtered.append(item)
                 seen.add(item.url)
@@ -503,6 +570,7 @@ def run_yt_dlp_with_strategies(
     timeout: float,
     proxy: str | None,
     access_strategy: str,
+    site_mode: str,
     impersonation_targets: list[str] | None = None,
     allow_auto_install: bool = True,
 ) -> tuple[bool, str]:
@@ -532,6 +600,17 @@ def run_yt_dlp_with_strategies(
         base_cmd.extend(["--merge-output-format", "mp4"])
     if proxy:
         base_cmd.extend(["--proxy", proxy])
+    if site_mode == "instagram-public":
+        base_cmd.extend(
+            [
+                "--referer",
+                SOCIAL_REFERER,
+                "--add-header",
+                "Origin:https://www.instagram.com",
+                "--add-header",
+                "Accept-Language:en-US,en;q=0.9",
+            ]
+        )
 
     if impersonation_targets is None:
         impersonation_targets = list_impersonate_targets()
@@ -593,6 +672,7 @@ def run_yt_dlp_with_strategies(
                 timeout,
                 proxy,
                 "resilient",
+                site_mode,
                 impersonation_targets=refreshed_targets,
                 allow_auto_install=False,
             )
@@ -625,8 +705,8 @@ def suggest_authorized_next_steps(error_text: str) -> str | None:
         )
     if "403" in lower or "forbidden" in lower or "anti-bot" in lower or "cloudflare" in lower:
         return (
-            "tip: server rejected non-browser requests; retry with authorized browser cookies "
-            "(for example via yt-dlp cookie options) and ensure you have permission to access the media"
+            "tip: server rejected non-browser requests; use public media URLs, lower request rate, "
+            "and only enable authenticated cookie workflows if your runtime policy explicitly allows it"
         )
     if "429" in lower or "too many requests" in lower:
         return "tip: rate-limited by host; reduce parallelism (--workers 1-2) and retry later"
@@ -639,6 +719,7 @@ def run_yt_dlp_all_resolutions(
     timeout: float,
     proxy: str | None,
     access_strategy: str,
+    site_mode: str,
 ) -> tuple[int, int, list[str]]:
     """Download every available video resolution by enumerating yt-dlp formats."""
     cmd_prefix = yt_dlp_command()
@@ -651,6 +732,8 @@ def run_yt_dlp_all_resolutions(
         impersonation_args = ["--impersonate", impersonation_targets[0]]
 
     list_cmd = cmd_prefix + ["--list-formats"] + impersonation_args + [url]
+    if site_mode == "instagram-public":
+        list_cmd.extend(["--referer", SOCIAL_REFERER])
     if proxy:
         list_cmd.extend(["--proxy", proxy])
 
@@ -666,6 +749,8 @@ def run_yt_dlp_all_resolutions(
             if impersonation_targets:
                 impersonation_args = ["--impersonate", impersonation_targets[0]]
                 list_cmd = cmd_prefix + ["--list-formats"] + impersonation_args + [url]
+                if site_mode == "instagram-public":
+                    list_cmd.extend(["--referer", SOCIAL_REFERER])
                 if proxy:
                     list_cmd.extend(["--proxy", proxy])
                 listed = subprocess.run(list_cmd, capture_output=True, text=True, timeout=max(timeout, 60))
@@ -709,6 +794,8 @@ def run_yt_dlp_all_resolutions(
             cmd.extend(["--merge-output-format", "mp4"])
         if proxy:
             cmd.extend(["--proxy", proxy])
+        if site_mode == "instagram-public":
+            cmd.extend(["--referer", SOCIAL_REFERER])
 
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=max(timeout, 120))
         if result.returncode == 0:
@@ -725,9 +812,14 @@ def run_yt_dlp_all_resolutions(
     return success, failed, debug_lines
 
 
-def collect_candidates(session: requests.Session, url: str, timeout: float) -> list[Candidate]:
+def collect_candidates(
+    session: requests.Session,
+    url: str,
+    timeout: float,
+    include_all_html_media: bool,
+) -> list[Candidate]:
     page_html = fetch_page(session, url, timeout)
-    return extract_from_html(page_html, url)
+    return extract_from_html(page_html, url, include_all_html_media=include_all_html_media)
 
 
 def preview(candidates: Iterable[Candidate], limit: int = 40) -> None:
@@ -736,7 +828,7 @@ def preview(candidates: Iterable[Candidate], limit: int = 40) -> None:
         if idx >= limit:
             print(f"... and more ({idx + 1}+ entries)")
             break
-        print(f"[{idx+1:03}] {safe_filename_from_url(item.url, 'media_item')} :: {item.url}  ({item.source})")
+        print(f"[{idx+1:03}] {safe_filename_from_url(item.url, 'media_item')} :: {sanitize_url_for_logs(item.url)}  ({item.source})")
 
 
 def anonymize_notice(proxy: str | None) -> None:
@@ -767,6 +859,12 @@ def main() -> int:
     parser.add_argument("--all-page", action="store_true", help="Capture page-level assets and run page extraction")
     parser.add_argument("--all-scroll", action="store_true", help="Auto-scroll page (Playwright) and capture media URLs")
     parser.add_argument(
+        "--site-mode",
+        choices=["general", "instagram-public", "all-media-html-sources"],
+        default=str(defaults.get("site_mode", "general")),
+        help="Site profile preset. Use instagram-public for public social media pages.",
+    )
+    parser.add_argument(
         "--access-strategy",
         choices=["standard", "resilient"],
         default=str(defaults.get("access_strategy", "standard")),
@@ -786,6 +884,7 @@ def main() -> int:
             "diagnostics": args.diagnostics,
             "download_all_resolutions": args.download_all_resolutions,
             "access_strategy": args.access_strategy,
+            "site_mode": args.site_mode,
         })
         print(msg)
         if not ok:
@@ -821,6 +920,17 @@ def main() -> int:
         return 1
     if not args.url:
         return 0
+    if url_violates_privacy_policy(args.url):
+        print("POLICY_BLOCKED: URL contains disallowed credentials or sensitive query keys.")
+        print("Remove token/session/password-style data and retry.")
+        return 3
+
+    if args.site_mode == "instagram-public":
+        if args.access_strategy != "resilient":
+            print("Site mode instagram-public overrides access strategy to resilient.")
+        args.access_strategy = "resilient"
+        args.include_page_with_ytdlp = True
+        args.workers = min(args.workers, 2)
 
     anonymize_notice(args.proxy)
     if not args.skip_launch_check:
@@ -835,9 +945,15 @@ def main() -> int:
     out_dir = Path(args.output).expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    session = build_session(proxy=args.proxy, timeout=args.timeout)
+    include_all_html_media = args.site_mode == "all-media-html-sources"
+    session = build_session(proxy=args.proxy, timeout=args.timeout, site_mode=args.site_mode)
     try:
-        candidates = collect_candidates(session, args.url, args.timeout)
+        candidates = collect_candidates(
+            session,
+            args.url,
+            args.timeout,
+            include_all_html_media=include_all_html_media,
+        )
     except Exception as exc:
         print(f"Failed to parse page: {exc}")
         candidates = []
@@ -864,12 +980,21 @@ def main() -> int:
     failure_count = 0
 
     def worker(candidate: Candidate) -> tuple[str, bool, str]:
+        if url_violates_privacy_policy(candidate.url):
+            return candidate.url, False, "policy-blocked candidate URL with sensitive token/credentials"
         content_type = probe_content_type(session, candidate.url, args.timeout)
         if not looks_like_media(candidate.url, content_type):
             return candidate.url, False, "not media"
 
         if candidate.url.lower().endswith(".m3u8") or "m3u8" in candidate.url.lower():
-            ok, msg = run_yt_dlp_with_strategies(candidate.url, out_dir, args.timeout, args.proxy, args.access_strategy)
+            ok, msg = run_yt_dlp_with_strategies(
+                candidate.url,
+                out_dir,
+                args.timeout,
+                args.proxy,
+                args.access_strategy,
+                args.site_mode,
+            )
             if ok:
                 return candidate.url, True, msg
             ff_ok, ff_msg = run_ffmpeg_hls(candidate.url, out_dir, args.timeout, args.proxy)
@@ -881,7 +1006,14 @@ def main() -> int:
         if ok:
             return candidate.url, True, msg
 
-        ok2, msg2 = run_yt_dlp_with_strategies(candidate.url, out_dir, args.timeout, args.proxy, args.access_strategy)
+        ok2, msg2 = run_yt_dlp_with_strategies(
+            candidate.url,
+            out_dir,
+            args.timeout,
+            args.proxy,
+            args.access_strategy,
+            args.site_mode,
+        )
         return candidate.url, ok2, msg2 if ok2 else f"{msg}; ytdlp: {msg2}"
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(args.workers, 1)) as pool:
@@ -890,17 +1022,24 @@ def main() -> int:
     for url, ok, message in results:
         if ok:
             success_count += 1
-            print(f"[OK] {url} -> {message}")
+            print(f"[OK] {sanitize_url_for_logs(url)} -> {message}")
         else:
             failure_count += 1
             tip = suggest_authorized_next_steps(message)
             if tip:
-                print(f"[FAIL] {url} -> {message} | {tip}")
+                print(f"[FAIL] {sanitize_url_for_logs(url)} -> {message} | {tip}")
             else:
-                print(f"[FAIL] {url} -> {message}")
+                print(f"[FAIL] {sanitize_url_for_logs(url)} -> {message}")
 
     if args.include_page_with_ytdlp or args.all_page:
-        ok, msg = run_yt_dlp_with_strategies(args.url, out_dir, max(args.timeout * 2, 90), args.proxy, args.access_strategy)
+        ok, msg = run_yt_dlp_with_strategies(
+            args.url,
+            out_dir,
+            max(args.timeout * 2, 90),
+            args.proxy,
+            args.access_strategy,
+            args.site_mode,
+        )
         if ok:
             success_count += 1
             print(f"[OK] page-url -> {msg}")
@@ -913,7 +1052,14 @@ def main() -> int:
                 print(f"[FAIL] page-url -> {msg}")
 
     if args.download_all_resolutions:
-        res_ok, res_fail, debug_lines = run_yt_dlp_all_resolutions(args.url, out_dir, max(args.timeout * 2, 120), args.proxy, args.access_strategy)
+        res_ok, res_fail, debug_lines = run_yt_dlp_all_resolutions(
+            args.url,
+            out_dir,
+            max(args.timeout * 2, 120),
+            args.proxy,
+            args.access_strategy,
+            args.site_mode,
+        )
         success_count += res_ok
         failure_count += res_fail
         for line in debug_lines:
@@ -925,6 +1071,7 @@ def main() -> int:
         print(f"Workers        : {args.workers}")
         print(f"Timeout        : {args.timeout}")
         print(f"Proxy          : {args.proxy or 'none'}")
+        print(f"Site mode      : {args.site_mode}")
         print(f"Access strategy: {args.access_strategy}")
         print(f"Candidates     : {len(candidates)}")
         cmd_prefix = yt_dlp_command()
@@ -938,6 +1085,8 @@ def main() -> int:
     print(f"Successful    : {success_count}")
     print(f"Failed        : {failure_count}")
     print("Use only on content you are allowed to download.")
+    session.cookies.clear()
+    session.close()
     return 0 if success_count > 0 or not candidates else 2
 
 
