@@ -57,6 +57,14 @@ https://example.com/page-two">{{ values.urls_text }}</textarea>
         </select>
       </label>
       <label>
+        Site mode
+        <select name="site_mode">
+          <option value="general" {% if values.site_mode == 'general' %}selected{% endif %}>General sites</option>
+          <option value="instagram-public" {% if values.site_mode == 'instagram-public' %}selected{% endif %}>Instagram/public social mode</option>
+          <option value="all-media-html-sources" {% if values.site_mode == 'all-media-html-sources' %}selected{% endif %}>All media from HTML and sources</option>
+        </select>
+      </label>
+      <label>
         All page!
         <select name="all_page">
           <option value="1" {% if values.all_page %}selected{% endif %}>Enabled</option>
@@ -113,7 +121,7 @@ https://example.com/page-two">{{ values.urls_text }}</textarea>
       <button type="submit">Install / Upgrade Dependencies</button>
     </form>
   </div>
-  <p class="help-text">This tool supports public or authorized content access only; it does not bypass paywalls, account gates, or age checks. Resilient mode only increases retries and compatible client behaviors for legitimate access.</p>
+  <p class="help-text">Privacy mode is enforced in deterministic code: strict session isolation, blocked sensitive URL tokens, and no authenticated sign-in behavior unless explicitly enabled by runtime policy. Instagram/public social mode automatically tunes retries, headers, and extractor behavior for public pages only.</p>
 </section>
 
 

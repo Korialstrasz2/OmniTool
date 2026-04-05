@@ -239,6 +239,7 @@ def media_harvester():
         'all_page': '1' if defaults.get('all_page', False) else '',
         'all_scroll': '1' if defaults.get('all_scroll', False) else '',
         'access_strategy': str(defaults.get('access_strategy', 'standard')),
+        'site_mode': str(defaults.get('site_mode', 'general')),
         'passive_page_url': str(defaults.get('passive_page_url', '')),
         'passive_output_dir': str(defaults.get('passive_output_dir', SCRIPTS_DIR / 'media_downloads')),
         'passive_mode': str(defaults.get('passive_mode', 'slow')),
@@ -316,10 +317,13 @@ def media_harvester():
             'all_page': '1' if request.form.get('all_page') else '',
             'all_scroll': '1' if request.form.get('all_scroll') else '',
             'access_strategy': request.form.get('access_strategy', values['access_strategy']).strip() or 'standard',
+            'site_mode': request.form.get('site_mode', values['site_mode']).strip() or 'general',
         })
 
         if values['access_strategy'] not in {'standard', 'resilient'}:
             values['access_strategy'] = 'standard'
+        if values['site_mode'] not in {'general', 'instagram-public', 'all-media-html-sources'}:
+            values['site_mode'] = 'general'
 
         if request.form.get('save_defaults'):
             payload = {
@@ -334,6 +338,7 @@ def media_harvester():
                 'all_page': bool(values['all_page']),
                 'all_scroll': bool(values['all_scroll']),
                 'access_strategy': values['access_strategy'],
+                'site_mode': values['site_mode'],
                 'passive_page_url': values['passive_page_url'],
                 'passive_output_dir': values['passive_output_dir'],
                 'passive_mode': values['passive_mode'],
@@ -386,6 +391,7 @@ def media_harvester():
                 if values['all_scroll']:
                     command.append('--all-scroll')
                 command.extend(['--access-strategy', values['access_strategy']])
+                command.extend(['--site-mode', values['site_mode']])
 
                 try:
                     completed = subprocess.run(
