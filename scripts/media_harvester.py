@@ -360,7 +360,9 @@ def fetch_page(session: requests.Session, url: str, timeout: float) -> str:
 
 
 def normalize_candidate(url: str, base_url: str) -> str:
-    joined = urljoin(base_url, html.unescape(url.strip()))
+    cleaned = html.unescape(url.strip())
+    cleaned = cleaned.replace("\\/", "/").replace("\\u0026", "&")
+    joined = urljoin(base_url, cleaned)
     parsed = urlparse(joined)
     cleaned = parsed._replace(fragment="").geturl()
     return cleaned
@@ -404,6 +406,7 @@ def extract_from_html(page_html: str, base_url: str, include_all_html_media: boo
         "srcset": r"srcset=['\"]([^'\"]+)['\"]",
         "meta": r"<meta[^>]+content=['\"]([^'\"]+)['\"]",
         "json": r"https?://[^\s'\"<>]+",
+        "json-escaped": r"https?:\\\\/\\\\/[^\s'\"<>]+",
         "hls": r"https?://[^\s'\"<>]+\.m3u8(?:\?[^'\"\s<>]*)?",
         "css-url": r"url\((['\"]?)(https?://[^)'\"]+)\1\)",
         "link-href": r"<link[^>]+href=['\"]([^'\"]+)['\"]",
@@ -425,6 +428,8 @@ def extract_from_html(page_html: str, base_url: str, include_all_html_media: boo
     seen: set[str] = set()
     for item in candidates:
         lower_url = item.url.lower()
+        if "static.cdninstagram.com/rsrc.php/" in lower_url:
+            continue
         media_match = any(ext in lower_url for ext in MEDIA_EXTENSIONS) or "m3u8" in lower_url
         if include_all_html_media and (
             any(token in lower_url for token in ("/image", "/video", "/audio"))
