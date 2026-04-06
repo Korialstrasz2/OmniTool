@@ -88,6 +88,25 @@ class Candidate:
     source: str
 
 
+def normalize_target_url(raw_url: str, site_mode: str) -> tuple[str, str | None]:
+    """Normalize user-supplied URL for site-specific known patterns."""
+    normalized = raw_url.strip()
+    if site_mode != "instagram-public":
+        return normalized, None
+
+    parsed = urlparse(normalized)
+    host = parsed.netloc.lower()
+    if not host.endswith("instagram.com"):
+        return normalized, None
+
+    match = re.match(r"^/popular/([^/?#]+)/?$", parsed.path, flags=re.IGNORECASE)
+    if match:
+        username = match.group(1)
+        rewritten = parsed._replace(path=f"/{username}/", query="", fragment="").geturl()
+        return rewritten, f"Normalized Instagram URL to profile path: {rewritten}"
+    return normalized, None
+
+
 def load_defaults() -> dict[str, object]:
     if not DEFAULTS_FILE.exists():
         return {}
@@ -361,7 +380,12 @@ def fetch_page(session: requests.Session, url: str, timeout: float) -> str:
 
 def normalize_candidate(url: str, base_url: str) -> str:
     cleaned = html.unescape(url.strip())
-    cleaned = cleaned.replace("\\/", "/").replace("\\u0026", "&")
+    cleaned = (
+        cleaned.replace("\\/", "/")
+        .replace("\\u0026", "&")
+        .replace("\\u002F", "/")
+        .replace("\\u003D", "=")
+    )
     joined = urljoin(base_url, cleaned)
     parsed = urlparse(joined)
     cleaned = parsed._replace(fragment="").geturl()
@@ -936,6 +960,10 @@ def main() -> int:
         args.access_strategy = "resilient"
         args.include_page_with_ytdlp = True
         args.workers = min(args.workers, 2)
+        normalized_url, note = normalize_target_url(args.url, args.site_mode)
+        if note:
+            print(note)
+        args.url = normalized_url
 
     anonymize_notice(args.proxy)
     if not args.skip_launch_check:
