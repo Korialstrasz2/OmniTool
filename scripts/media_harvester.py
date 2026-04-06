@@ -88,6 +88,25 @@ class Candidate:
     source: str
 
 
+def normalize_target_url(raw_url: str, site_mode: str) -> tuple[str, str | None]:
+    """Normalize user-supplied URL for site-specific known patterns."""
+    normalized = raw_url.strip()
+    if site_mode != "instagram-public":
+        return normalized, None
+
+    parsed = urlparse(normalized)
+    host = parsed.netloc.lower()
+    if not host.endswith("instagram.com"):
+        return normalized, None
+
+    match = re.match(r"^/popular/([^/?#]+)/?$", parsed.path, flags=re.IGNORECASE)
+    if match:
+        username = match.group(1)
+        rewritten = parsed._replace(path=f"/{username}/", query="", fragment="").geturl()
+        return rewritten, f"Normalized Instagram URL to profile path: {rewritten}"
+    return normalized, None
+
+
 def load_defaults() -> dict[str, object]:
     if not DEFAULTS_FILE.exists():
         return {}
@@ -360,7 +379,14 @@ def fetch_page(session: requests.Session, url: str, timeout: float) -> str:
 
 
 def normalize_candidate(url: str, base_url: str) -> str:
-    joined = urljoin(base_url, html.unescape(url.strip()))
+    cleaned = html.unescape(url.strip())
+    cleaned = (
+        cleaned.replace("\\/", "/")
+        .replace("\\u0026", "&")
+        .replace("\\u002F", "/")
+        .replace("\\u003D", "=")
+    )
+    joined = urljoin(base_url, cleaned)
     parsed = urlparse(joined)
     cleaned = parsed._replace(fragment="").geturl()
     return cleaned
@@ -404,6 +430,7 @@ def extract_from_html(page_html: str, base_url: str, include_all_html_media: boo
         "srcset": r"srcset=['\"]([^'\"]+)['\"]",
         "meta": r"<meta[^>]+content=['\"]([^'\"]+)['\"]",
         "json": r"https?://[^\s'\"<>]+",
+        "json-escaped": r"https?:\\\\/\\\\/[^\s'\"<>]+",
         "hls": r"https?://[^\s'\"<>]+\.m3u8(?:\?[^'\"\s<>]*)?",
         "css-url": r"url\((['\"]?)(https?://[^)'\"]+)\1\)",
         "link-href": r"<link[^>]+href=['\"]([^'\"]+)['\"]",
@@ -425,6 +452,8 @@ def extract_from_html(page_html: str, base_url: str, include_all_html_media: boo
     seen: set[str] = set()
     for item in candidates:
         lower_url = item.url.lower()
+        if "static.cdninstagram.com/rsrc.php/" in lower_url:
+            continue
         media_match = any(ext in lower_url for ext in MEDIA_EXTENSIONS) or "m3u8" in lower_url
         if include_all_html_media and (
             any(token in lower_url for token in ("/image", "/video", "/audio"))
@@ -931,6 +960,10 @@ def main() -> int:
         args.access_strategy = "resilient"
         args.include_page_with_ytdlp = True
         args.workers = min(args.workers, 2)
+        normalized_url, note = normalize_target_url(args.url, args.site_mode)
+        if note:
+            print(note)
+        args.url = normalized_url
 
     anonymize_notice(args.proxy)
     if not args.skip_launch_check:
