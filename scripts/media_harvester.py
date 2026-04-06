@@ -102,8 +102,20 @@ def normalize_target_url(raw_url: str, site_mode: str) -> tuple[str, str | None]
     match = re.match(r"^/popular/([^/?#]+)/?$", parsed.path, flags=re.IGNORECASE)
     if match:
         username = match.group(1)
+        cleaned_username = re.sub(r"[^a-zA-Z0-9._]", "", username)
+        if cleaned_username:
+            username = cleaned_username
         rewritten = parsed._replace(path=f"/{username}/", query="", fragment="").geturl()
         return rewritten, f"Normalized Instagram URL to profile path: {rewritten}"
+
+    profile_match = re.match(r"^/([^/?#]+)/?$", parsed.path, flags=re.IGNORECASE)
+    if profile_match:
+        raw_username = profile_match.group(1)
+        if raw_username.lower() not in {"p", "reel", "explore", "stories", "tv"}:
+            cleaned_username = re.sub(r"[^a-zA-Z0-9._]", "", raw_username)
+            if cleaned_username and cleaned_username != raw_username:
+                rewritten = parsed._replace(path=f"/{cleaned_username}/", query="", fragment="").geturl()
+                return rewritten, f"Normalized Instagram username to valid charset: {rewritten}"
     return normalized, None
 
 
