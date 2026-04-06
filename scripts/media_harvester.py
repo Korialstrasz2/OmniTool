@@ -479,6 +479,40 @@ def extract_from_html(page_html: str, base_url: str, include_all_html_media: boo
     return filtered
 
 
+def extract_instagram_post_candidates(page_html: str, profile_url: str) -> list[Candidate]:
+    """Extract Instagram post/reel/tv URLs from a profile page payload."""
+    parsed = urlparse(profile_url)
+    profile_root = parsed._replace(path="/", params="", query="", fragment="").geturl().rstrip("/")
+    patterns = [
+        r"https?://(?:www\.)?instagram\.com/(?:p|reel|tv)/[A-Za-z0-9_-]+/?",
+        r"/(?:p|reel|tv)/[A-Za-z0-9_-]+/?",
+        r'"shortcode"\s*:\s*"([A-Za-z0-9_-]+)"',
+    ]
+
+    discovered: list[Candidate] = []
+    seen: set[str] = set()
+
+    for full_url in re.findall(patterns[0], page_html, flags=re.IGNORECASE):
+        normalized = normalize_candidate(full_url, profile_url)
+        if normalized not in seen:
+            discovered.append(Candidate(normalized, "instagram-post", "instagram-profile-html"))
+            seen.add(normalized)
+
+    for partial in re.findall(patterns[1], page_html, flags=re.IGNORECASE):
+        normalized = normalize_candidate(urljoin(profile_root + "/", partial.lstrip("/")), profile_url)
+        if normalized not in seen:
+            discovered.append(Candidate(normalized, "instagram-post", "instagram-profile-html"))
+            seen.add(normalized)
+
+    for shortcode in re.findall(patterns[2], page_html, flags=re.IGNORECASE):
+        normalized = normalize_candidate(f"{profile_root}/p/{shortcode}/", profile_url)
+        if normalized not in seen:
+            discovered.append(Candidate(normalized, "instagram-post", "instagram-shortcode"))
+            seen.add(normalized)
+
+    return discovered
+
+
 def safe_filename_from_url(url: str, fallback: str) -> str:
     parsed = urlparse(url)
     name = Path(parsed.path).name or fallback
@@ -858,9 +892,17 @@ def collect_candidates(
     url: str,
     timeout: float,
     include_all_html_media: bool,
+    site_mode: str,
 ) -> list[Candidate]:
     page_html = fetch_page(session, url, timeout)
-    return extract_from_html(page_html, url, include_all_html_media=include_all_html_media)
+    extracted = extract_from_html(page_html, url, include_all_html_media=include_all_html_media)
+    if site_mode == "instagram-public":
+        existing = {item.url for item in extracted}
+        for item in extract_instagram_post_candidates(page_html, url):
+            if item.url not in existing:
+                extracted.append(item)
+                existing.add(item.url)
+    return extracted
 
 
 def preview(candidates: Iterable[Candidate], limit: int = 40) -> None:
@@ -998,6 +1040,7 @@ def main() -> int:
             args.url,
             args.timeout,
             include_all_html_media=include_all_html_media,
+            site_mode=args.site_mode,
         )
     except Exception as exc:
         print(f"Failed to parse page: {exc}")
@@ -1025,6 +1068,17 @@ def main() -> int:
     failure_count = 0
 
     def worker(candidate: Candidate) -> tuple[str, bool, str]:
+        if candidate.kind == "instagram-post":
+            ok, msg = run_yt_dlp_with_strategies(
+                candidate.url,
+                out_dir,
+                max(args.timeout * 2, 90),
+                args.proxy,
+                args.access_strategy,
+                args.site_mode,
+            )
+            return candidate.url, ok, msg if ok else f"instagram post extraction failed: {msg}"
+
         if url_violates_privacy_policy(candidate.url):
             return candidate.url, False, "policy-blocked candidate URL with sensitive token/credentials"
         content_type = probe_content_type(session, candidate.url, args.timeout)
@@ -1076,7 +1130,14 @@ def main() -> int:
             else:
                 print(f"[FAIL] {sanitize_url_for_logs(url)} -> {message}")
 
-    if args.include_page_with_ytdlp or args.all_page:
+    run_page_level_yt_dlp = args.include_page_with_ytdlp or args.all_page
+    if args.site_mode == "instagram-public":
+        has_instagram_post_candidates = any(item.kind == "instagram-post" for item in candidates)
+        if has_instagram_post_candidates and not args.all_page:
+            run_page_level_yt_dlp = False
+            print("Skipping direct profile URL extraction because post links were discovered.")
+
+    if run_page_level_yt_dlp:
         ok, msg = run_yt_dlp_with_strategies(
             args.url,
             out_dir,
