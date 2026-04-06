@@ -40,47 +40,48 @@ https://example.com/page-two">{{ values.urls_text }}</textarea>
       </label>
     </div>
 
+    <h3>Workflow options (top to bottom)</h3>
     <div class="form-grid">
       <label>
-        Run mode
-        <select name="mode">
-          <option value="preview" {% if values.mode == 'preview' %}selected{% endif %}>Preview only</option>
-          <option value="download" {% if values.mode == 'download' %}selected{% endif %}>Standard download</option>
-          <option value="download-all" {% if values.mode == 'download-all' %}selected{% endif %}>Download all available resolutions</option>
-        </select>
-      </label>
-      <label>
-        Access strategy
-        <select name="access_strategy">
-          <option value="standard" {% if values.access_strategy == 'standard' %}selected{% endif %}>Standard</option>
-          <option value="resilient" {% if values.access_strategy == 'resilient' %}selected{% endif %}>Resilient retry strategy</option>
-        </select>
-      </label>
-      <label>
-        Site mode
-        <select name="site_mode">
+        1) Site mode
+        <select name="site_mode" id="site_mode">
           <option value="general" {% if values.site_mode == 'general' %}selected{% endif %}>General sites</option>
           <option value="instagram-public" {% if values.site_mode == 'instagram-public' %}selected{% endif %}>Instagram/public social mode</option>
           <option value="all-media-html-sources" {% if values.site_mode == 'all-media-html-sources' %}selected{% endif %}>All media from HTML and sources</option>
         </select>
       </label>
       <label>
-        All page!
-        <select name="all_page">
+        2) Run mode
+        <select name="mode" id="mode">
+          <option value="preview" {% if values.mode == 'preview' %}selected{% endif %}>Preview only</option>
+          <option value="download" {% if values.mode == 'download' %}selected{% endif %}>Standard download</option>
+          <option value="download-all" {% if values.mode == 'download-all' %}selected{% endif %}>Download all available resolutions</option>
+        </select>
+      </label>
+      <label>
+        3) Access strategy
+        <select name="access_strategy" id="access_strategy">
+          <option value="standard" {% if values.access_strategy == 'standard' %}selected{% endif %}>Standard</option>
+          <option value="resilient" {% if values.access_strategy == 'resilient' %}selected{% endif %}>Resilient retry strategy</option>
+        </select>
+      </label>
+      <label>
+        4) Page scan: all-page
+        <select name="all_page" id="all_page">
           <option value="1" {% if values.all_page %}selected{% endif %}>Enabled</option>
           <option value="" {% if not values.all_page %}selected{% endif %}>Disabled</option>
         </select>
       </label>
       <label>
-        All scroll
-        <select name="all_scroll">
+        5) Page scan: all-scroll
+        <select name="all_scroll" id="all_scroll">
           <option value="1" {% if values.all_scroll %}selected{% endif %}>Enabled</option>
           <option value="" {% if not values.all_scroll %}selected{% endif %}>Disabled</option>
         </select>
       </label>
       <label>
-        Include page URL with yt-dlp
-        <select name="include_page_with_ytdlp">
+        6) yt-dlp on page URL
+        <select name="include_page_with_ytdlp" id="include_page_with_ytdlp">
           <option value="1" {% if values.include_page_with_ytdlp %}selected{% endif %}>Enabled</option>
           <option value="" {% if not values.include_page_with_ytdlp %}selected{% endif %}>Disabled</option>
         </select>
@@ -90,14 +91,14 @@ https://example.com/page-two">{{ values.urls_text }}</textarea>
     <div class="form-grid">
       <label>
         Diagnostics output
-        <select name="diagnostics">
+        <select name="diagnostics" id="diagnostics">
           <option value="1" {% if values.diagnostics %}selected{% endif %}>Enabled</option>
           <option value="" {% if not values.diagnostics %}selected{% endif %}>Disabled</option>
         </select>
       </label>
       <label>
         Force all resolutions
-        <select name="download_all_resolutions">
+        <select name="download_all_resolutions" id="download_all_resolutions">
           <option value="1" {% if values.download_all_resolutions %}selected{% endif %}>Enabled</option>
           <option value="" {% if not values.download_all_resolutions %}selected{% endif %}>Disabled</option>
         </select>
@@ -196,4 +197,63 @@ https://example.com/page-two">{{ values.urls_text }}</textarea>
   <pre class="logs-output">{{ output }}</pre>
 </section>
 {% endif %}
+
+<script>
+  (() => {
+    const modeEl = document.getElementById('mode');
+    const siteModeEl = document.getElementById('site_mode');
+    const accessEl = document.getElementById('access_strategy');
+    const allPageEl = document.getElementById('all_page');
+    const includePageEl = document.getElementById('include_page_with_ytdlp');
+    const allResEl = document.getElementById('download_all_resolutions');
+
+    if (!modeEl || !siteModeEl) return;
+
+    const setSelectState = (el, { disabled, forcedValue }) => {
+      if (!el) return;
+      el.disabled = disabled;
+      if (forcedValue !== undefined) {
+        el.value = forcedValue;
+      }
+    };
+
+    const sync = () => {
+      const mode = modeEl.value;
+      const siteMode = siteModeEl.value;
+
+      if (siteMode === 'instagram-public') {
+        setSelectState(accessEl, { disabled: true, forcedValue: 'resilient' });
+        setSelectState(includePageEl, { disabled: true, forcedValue: '1' });
+      } else {
+        setSelectState(accessEl, { disabled: false });
+        setSelectState(includePageEl, { disabled: false });
+      }
+
+      if (siteMode === 'all-media-html-sources') {
+        setSelectState(allPageEl, { disabled: true, forcedValue: '1' });
+      } else {
+        setSelectState(allPageEl, { disabled: false });
+      }
+
+      if (mode === 'preview') {
+        if (siteMode !== 'instagram-public') {
+          setSelectState(includePageEl, { disabled: true, forcedValue: '' });
+        }
+        setSelectState(allResEl, { disabled: true, forcedValue: '' });
+      } else if (mode === 'download') {
+        if (siteMode !== 'instagram-public') {
+          setSelectState(includePageEl, { disabled: false });
+        }
+        setSelectState(allResEl, { disabled: true, forcedValue: '' });
+      } else {
+        setSelectState(includePageEl, { disabled: true, forcedValue: '1' });
+        setSelectState(allResEl, { disabled: true, forcedValue: '1' });
+      }
+    };
+
+    modeEl.addEventListener('change', sync);
+    siteModeEl.addEventListener('change', sync);
+    sync();
+  })();
+</script>
 {% endblock %}

@@ -44,6 +44,35 @@ def read_media_harvester_defaults():
 def write_media_harvester_defaults(values):
     MEDIA_HARVESTER_DEFAULTS.write_text(json.dumps(values, indent=2), encoding='utf-8')
 
+
+def coerce_media_harvester_values(values):
+    """Normalize UI settings so frontend choices stay coherent with backend flags."""
+    mode = values.get('mode', 'preview')
+    site_mode = values.get('site_mode', 'general')
+
+    if mode == 'preview':
+        values['include_page_with_ytdlp'] = ''
+        values['download_all_resolutions'] = ''
+    elif mode == 'download':
+        values['download_all_resolutions'] = ''
+    elif mode == 'download-all':
+        values['include_page_with_ytdlp'] = '1'
+        values['download_all_resolutions'] = '1'
+
+    if site_mode == 'instagram-public':
+        values['access_strategy'] = 'resilient'
+        values['include_page_with_ytdlp'] = '1'
+        try:
+            workers = int(values.get('workers', '2') or '2')
+        except ValueError:
+            workers = 2
+        values['workers'] = str(max(1, min(workers, 2)))
+
+    if site_mode == 'all-media-html-sources':
+        values['all_page'] = '1'
+
+    return values
+
 def load_tools():
     """Load tool definitions from tools.json."""
     if TOOLS_FILE.exists():
@@ -248,6 +277,7 @@ def media_harvester():
         'passive_headless': '1' if defaults.get('passive_headless', True) else '',
         'passive_auto_download': '1' if defaults.get('passive_auto_download', True) else '',
     }
+    values = coerce_media_harvester_values(values)
 
     if request.method == 'POST':
         workflow = request.form.get('workflow', 'active').strip() or 'active'
@@ -324,6 +354,7 @@ def media_harvester():
             values['access_strategy'] = 'standard'
         if values['site_mode'] not in {'general', 'instagram-public', 'all-media-html-sources'}:
             values['site_mode'] = 'general'
+        values = coerce_media_harvester_values(values)
 
         if request.form.get('save_defaults'):
             payload = {
