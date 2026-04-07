@@ -30,6 +30,13 @@ class StreamHit:
     source: str
 
 
+def safe_text(text: object) -> str:
+    """Return text that can always be encoded by the active stdout encoding."""
+    value = str(text)
+    encoding = sys.stdout.encoding or "utf-8"
+    return value.encode(encoding, errors="replace").decode(encoding, errors="replace")
+
+
 def looks_like_stream(url: str, content_type: str) -> bool:
     lowered = url.lower()
     if any(marker in lowered for marker in MEDIA_MARKERS):
@@ -50,7 +57,15 @@ def capture_with_playwright(url: str, capture_seconds: int, idle_seconds: int, h
     seen: set[str] = set()
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=headless)
+        try:
+            browser = p.chromium.launch(headless=headless)
+        except Exception as exc:
+            message = str(exc)
+            if "Executable doesn't exist" in message and "playwright install" in message:
+                raise RuntimeError(
+                    "Playwright browser binaries are missing. Run: python -m playwright install chromium"
+                ) from exc
+            raise
         context = browser.new_context()
         page = context.new_page()
 
@@ -297,7 +312,7 @@ def main() -> int:
     try:
         hits = capture_with_playwright(args.url, args.capture_seconds, args.idle_seconds, args.headless)
     except Exception as exc:
-        print(f"Passive capture failed: {exc}")
+        print(safe_text(f"Passive capture failed: {exc}"))
         return 1
 
     print("\n=== Captured stream candidates ===")
