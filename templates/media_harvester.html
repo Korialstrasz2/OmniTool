@@ -130,12 +130,12 @@ https://example.com/page-two">{{ values.urls_text }}</textarea>
 <section class="card card-soft media-harvester-page">
   <div class="card-header">
     <h3>Passive stream capture (experimental)</h3>
-    <p class="help-text">Use this when a site only reveals stream URLs during playback. Slow mode captures passively while the video plays; fast mode tries to fetch the full stream from intercepted URLs as soon as candidates appear.</p>
+    <p class="help-text">Use this when a site only reveals stream URLs during playback. Slow mode captures passively while the video plays; fast mode tries to fetch the full stream from intercepted URLs as soon as candidates appear; elusive sites mode adds multiple fallback download strategies for stubborn/snippet-based streams.</p>
   </div>
 
   <ol class="help-list">
     <li>Enter the page URL that contains the media player.</li>
-    <li>Choose mode: <strong>Slow</strong> (observe playback) or <strong>Fast</strong> (aggressive full fetch after interception).</li>
+    <li>Choose mode: <strong>Slow</strong> (observe playback), <strong>Fast</strong> (aggressive full fetch), or <strong>Elusive sites</strong> (tries resilient yt-dlp, ffmpeg copy/re-encode, and curl fallback).</li>
     <li>Set capture window and idle timeout, then run capture.</li>
     <li>Review output logs to see intercepted stream URLs and download results.</li>
   </ol>
@@ -156,6 +156,7 @@ https://example.com/page-two">{{ values.urls_text }}</textarea>
         <select name="passive_mode">
           <option value="slow" {% if values.passive_mode == 'slow' %}selected{% endif %}>Slow (playback mirroring)</option>
           <option value="fast" {% if values.passive_mode == 'fast' %}selected{% endif %}>Fast (request full stream)</option>
+          <option value="elusive-sites" {% if values.passive_mode == 'elusive-sites' %}selected{% endif %}>Elusive sites (multi-strategy)</option>
         </select>
       </label>
       <label>

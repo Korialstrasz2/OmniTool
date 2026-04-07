@@ -293,7 +293,7 @@ def media_harvester():
                 'passive_auto_download': '1' if request.form.get('passive_auto_download') else '',
             })
 
-            if values['passive_mode'] not in {'slow', 'fast'}:
+            if values['passive_mode'] not in {'slow', 'fast', 'elusive-sites'}:
                 values['passive_mode'] = 'slow'
 
             command = [

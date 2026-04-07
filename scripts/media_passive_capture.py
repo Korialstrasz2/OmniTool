@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -106,6 +107,37 @@ def run_yt_dlp(stream_url: str, output_dir: Path) -> tuple[bool, str]:
     return completed.returncode == 0, output[-2000:]
 
 
+def run_yt_dlp_resilient(stream_url: str, output_dir: Path) -> tuple[bool, str]:
+    """Attempt yt-dlp with fallback argument profiles for hard-to-fetch streams."""
+    output_template = str(output_dir / "%(title).120s_%(id)s.%(ext)s")
+    strategies = [
+        [],
+        ["--retries", "12", "--fragment-retries", "12", "--retry-sleep", "exp=1:8"],
+        ["--force-generic-extractor", "--retries", "12", "--fragment-retries", "12", "--retry-sleep", "exp=1:8"],
+    ]
+    failures: list[str] = []
+    for extra_args in strategies:
+        cmd = [
+            sys.executable,
+            "-m",
+            "yt_dlp",
+            "--no-overwrites",
+            "--restrict-filenames",
+            "--concurrent-fragments",
+            "6",
+            "--output",
+            output_template,
+            *extra_args,
+            stream_url,
+        ]
+        completed = subprocess.run(cmd, capture_output=True, text=True, timeout=60 * 20)
+        output = (completed.stdout or "") + ("\n" + completed.stderr if completed.stderr else "")
+        if completed.returncode == 0:
+            return True, output[-2000:]
+        failures.append(output[-450:] or "yt-dlp failed")
+    return False, "\n---\n".join(failures)[-2500:]
+
+
 def run_ffmpeg_passthrough(stream_url: str, output_dir: Path) -> tuple[bool, str]:
     out_file = output_dir / f"{sanitize_filename(stream_url, 'stream_capture')}.mp4"
     cmd = [
@@ -122,6 +154,50 @@ def run_ffmpeg_passthrough(stream_url: str, output_dir: Path) -> tuple[bool, str
     return completed.returncode == 0, output[-2000:]
 
 
+def run_ffmpeg_reencode(stream_url: str, output_dir: Path) -> tuple[bool, str]:
+    """Fallback for snippet/fragment sources that fail stream copy."""
+    out_file = output_dir / f"{sanitize_filename(stream_url, 'stream_capture')}_reencode.mp4"
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        stream_url,
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-c:a",
+        "aac",
+        str(out_file),
+    ]
+    completed = subprocess.run(cmd, capture_output=True, text=True, timeout=60 * 20)
+    output = (completed.stdout or "") + ("\n" + completed.stderr if completed.stderr else "")
+    return completed.returncode == 0, output[-2000:]
+
+
+def run_curl_fetch(stream_url: str, output_dir: Path) -> tuple[bool, str]:
+    """Last-resort direct fetch for segment/snippet style URLs."""
+    curl_path = shutil.which("curl")
+    if not curl_path:
+        return False, "curl not installed"
+    out_file = output_dir / f"{sanitize_filename(stream_url, 'stream_capture')}.bin"
+    cmd = [
+        curl_path,
+        "-L",
+        "--fail",
+        "--silent",
+        "--show-error",
+        "--output",
+        str(out_file),
+        stream_url,
+    ]
+    completed = subprocess.run(cmd, capture_output=True, text=True, timeout=60 * 10)
+    output = (completed.stdout or "") + ("\n" + completed.stderr if completed.stderr else "")
+    if completed.returncode == 0 and out_file.exists() and out_file.stat().st_size > 0:
+        return True, output[-2000:]
+    return False, output[-2000:] or "curl failed"
+
+
 def download_hits(hits: list[StreamHit], output_dir: Path, mode: str) -> tuple[int, int, list[str]]:
     debug: list[str] = []
     success = 0
@@ -132,24 +208,62 @@ def download_hits(hits: list[StreamHit], output_dir: Path, mode: str) -> tuple[i
         preferred = [hit for hit in hits if any(token in hit.url.lower() for token in (".m3u8", ".mpd", "videoplayback", "mime=video"))]
         targets = preferred or hits
 
+    if mode == "elusive-sites":
+        seen_urls: set[str] = set()
+        ordered_targets: list[StreamHit] = []
+        for hit in hits:
+            if hit.url in seen_urls:
+                continue
+            ordered_targets.append(hit)
+            seen_urls.add(hit.url)
+        # Prioritize adaptive manifests first (often reference all snippets/fragments).
+        targets = sorted(
+            ordered_targets,
+            key=lambda hit: 0 if any(token in hit.url.lower() for token in (".m3u8", ".mpd")) else 1,
+        )
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
         futures = []
         for hit in targets:
-            futures.append(pool.submit(run_yt_dlp, hit.url, output_dir))
+            if mode == "elusive-sites":
+                futures.append(pool.submit(run_yt_dlp_resilient, hit.url, output_dir))
+            else:
+                futures.append(pool.submit(run_yt_dlp, hit.url, output_dir))
 
         for hit, future in zip(targets, futures):
             ok, msg = future.result()
             if ok:
                 success += 1
-                debug.append(f"[OK] yt-dlp -> {hit.url}")
+                strategy = "yt-dlp resilient" if mode == "elusive-sites" else "yt-dlp"
+                debug.append(f"[OK] {strategy} -> {hit.url}")
                 continue
             ff_ok, ff_msg = run_ffmpeg_passthrough(hit.url, output_dir)
             if ff_ok:
                 success += 1
                 debug.append(f"[OK] ffmpeg copy -> {hit.url}")
             else:
-                failed += 1
-                debug.append(f"[FAIL] {hit.url}\nyt-dlp:\n{msg}\nffmpeg:\n{ff_msg}")
+                if mode == "elusive-sites":
+                    reenc_ok, reenc_msg = run_ffmpeg_reencode(hit.url, output_dir)
+                    if reenc_ok:
+                        success += 1
+                        debug.append(f"[OK] ffmpeg reencode -> {hit.url}")
+                        continue
+                    curl_ok, curl_msg = run_curl_fetch(hit.url, output_dir)
+                    if curl_ok:
+                        success += 1
+                        debug.append(f"[OK] curl fallback -> {hit.url}")
+                        continue
+                    failed += 1
+                    debug.append(
+                        f"[FAIL] {hit.url}\n"
+                        f"yt-dlp:\n{msg}\n"
+                        f"ffmpeg-copy:\n{ff_msg}\n"
+                        f"ffmpeg-reencode:\n{reenc_msg}\n"
+                        f"curl:\n{curl_msg}"
+                    )
+                else:
+                    failed += 1
+                    debug.append(f"[FAIL] {hit.url}\nyt-dlp:\n{msg}\nffmpeg:\n{ff_msg}")
 
     return success, failed, debug
 
@@ -158,7 +272,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Passive stream detector and downloader (authorized use only).")
     parser.add_argument("--url", default="", help="Page URL to open for passive capture")
     parser.add_argument("--output", default="media_dump", help="Output directory")
-    parser.add_argument("--mode", choices=["slow", "fast"], default="slow", help="slow: capture while playback happens, fast: aggressively fetch full stream from intercepted URLs")
+    parser.add_argument(
+        "--mode",
+        choices=["slow", "fast", "elusive-sites"],
+        default="slow",
+        help="slow: capture while playback happens, fast: aggressively fetch full stream, elusive-sites: multi-strategy recovery for hard streaming pages",
+    )
     parser.add_argument("--capture-seconds", type=int, default=90, help="Maximum capture window")
     parser.add_argument("--idle-seconds", type=int, default=12, help="Stop after this idle period once stream URLs are found")
     parser.add_argument("--headless", action="store_true", help="Run browser headless")
