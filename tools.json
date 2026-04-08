@@ -64,11 +64,5 @@
     "name": "Media Harvester",
     "description": "Preview and download page media with fallback strategies (direct, yt-dlp, HLS).",
     "command": ""
-  },
-  {
-    "id": "voxtral-manager",
-    "name": "Voxtral Local Suite",
-    "description": "Setup locale privacy-first per STT/TTS, ricerca GGUF, voice cloning e hotkey esterne.",
-    "command": ""
   }
 ]

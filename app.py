@@ -21,8 +21,6 @@ LYRICS_CONFIG = SCRIPTS_DIR / 'lyrics_embedder_config.json'
 MEDIA_HARVESTER_SCRIPT = SCRIPTS_DIR / 'media_harvester.py'
 MEDIA_PASSIVE_CAPTURE_SCRIPT = SCRIPTS_DIR / 'media_passive_capture.py'
 MEDIA_HARVESTER_DEFAULTS = SCRIPTS_DIR / 'media_harvester_defaults.json'
-VOXTRAL_SCRIPT = SCRIPTS_DIR / 'voxtral_manager.py'
-VOXTRAL_CONFIG = SCRIPTS_DIR / 'voxtral_config.json'
 
 try:
     from openai import OpenAI
@@ -143,37 +141,6 @@ def save_lyrics_settings(settings: Dict[str, str]) -> None:
         json.dump(settings, config_file, indent=2)
 
 
-
-
-def load_voxtral_settings() -> Dict[str, str]:
-    defaults = {
-        'venv_path': str(SCRIPTS_DIR / 'venvs' / 'voxtral'),
-        'models_dir': str(SCRIPTS_DIR / 'models' / 'voxtral'),
-        'default_stt_model': 'small',
-        'default_tts_model': 'tts_models/multilingual/multi-dataset/xtts_v2',
-        'device': 'cpu',
-        'compute_type': 'int8',
-        'language': 'it',
-        'stt_output': str(SCRIPTS_DIR / 'outputs' / 'voxtral_stt.txt'),
-        'tts_output': str(SCRIPTS_DIR / 'outputs' / 'voxtral_tts.wav'),
-        'hotkey_output': str(SCRIPTS_DIR / 'voxtral_hotkeys.ahk'),
-        'gguf_query': 'voxtral',
-    }
-    if VOXTRAL_CONFIG.exists():
-        try:
-            with open(VOXTRAL_CONFIG) as config_file:
-                stored = json.load(config_file)
-                defaults.update(stored)
-        except json.JSONDecodeError:
-            pass
-    return defaults
-
-
-def save_voxtral_settings(settings: Dict[str, str]) -> None:
-    VOXTRAL_CONFIG.parent.mkdir(parents=True, exist_ok=True)
-    with open(VOXTRAL_CONFIG, 'w') as config_file:
-        json.dump(settings, config_file, indent=2)
-
 def parse_env_lines(env_text: str) -> Dict[str, str]:
     """Parse KEY=VALUE pairs from user input."""
     env: Dict[str, str] = {}
@@ -277,8 +244,6 @@ def tool_detail(tool_id):
         return redirect(url_for('csv_editor'))
     if tool_id == 'media-harvester-manager':
         return redirect(url_for('media_harvester'))
-    if tool_id == 'voxtral-manager':
-        return redirect(url_for('voxtral_manager'))
     return render_template('tool.html', tool=tool)
 
 
@@ -806,173 +771,6 @@ def lyrics_embedder_logs():
         lines = [line for line in lines if query in line.lower()]
 
     return {'ok': True, 'log_path': str(log_path), 'lines': [line.rstrip('\n') for line in lines]}
-
-
-@app.get('/voxtral')
-def voxtral_manager():
-    settings = load_voxtral_settings()
-    return render_template('voxtral_manager.html', settings=settings)
-
-
-@app.post('/voxtral/save-settings')
-def voxtral_save_settings():
-    fields = [
-        'venv_path', 'models_dir', 'default_stt_model', 'default_tts_model', 'device',
-        'compute_type', 'language', 'stt_output', 'tts_output', 'hotkey_output', 'gguf_query',
-    ]
-    settings = {field: request.form.get(field, '').strip() for field in fields}
-    save_voxtral_settings(settings)
-    flash('Voxtral settings saved.', 'success')
-    return redirect(url_for('voxtral_manager'))
-
-
-@app.post('/voxtral/setup')
-def voxtral_setup():
-    settings = load_voxtral_settings()
-    venv_path = request.form.get('venv_path', settings['venv_path']).strip() or settings['venv_path']
-    command = [
-        sys.executable,
-        str(VOXTRAL_SCRIPT),
-        'setup',
-        '--venv',
-        venv_path,
-    ]
-    if request.form.get('with_gpu'):
-        command.append('--with-gpu')
-    if request.form.get('with_clone'):
-        command.append('--with-clone')
-    completed = subprocess.run(command, cwd=str(SCRIPTS_DIR), capture_output=True, text=True)
-    output = (completed.stdout or '') + ('\n' + completed.stderr if completed.stderr else '')
-    flash(output or 'Setup completed.', 'success' if completed.returncode == 0 else 'error')
-    return redirect(url_for('voxtral_manager'))
-
-
-@app.post('/voxtral/search-gguf')
-def voxtral_search_gguf():
-    settings = load_voxtral_settings()
-    query = request.form.get('gguf_query', settings['gguf_query']).strip() or 'voxtral'
-    limit = request.form.get('gguf_limit', '30').strip() or '30'
-    command = [sys.executable, str(VOXTRAL_SCRIPT), 'search-gguf', '--query', query, '--limit', limit]
-    completed = subprocess.run(command, cwd=str(SCRIPTS_DIR), capture_output=True, text=True)
-    output = (completed.stdout or '') + ('\n' + completed.stderr if completed.stderr else '')
-    flash(output or 'GGUF search completed.', 'success' if completed.returncode == 0 else 'error')
-    return redirect(url_for('voxtral_manager'))
-
-
-@app.post('/voxtral/download-model')
-def voxtral_download_model():
-    url = request.form.get('model_url', '').strip()
-    output_path = request.form.get('model_output', '').strip()
-    if not url or not output_path:
-        flash('Model URL and output path are required.', 'error')
-        return redirect(url_for('voxtral_manager'))
-
-    command = [sys.executable, str(VOXTRAL_SCRIPT), 'download', '--url', url, '--output', output_path]
-    completed = subprocess.run(command, cwd=str(SCRIPTS_DIR), capture_output=True, text=True)
-    output = (completed.stdout or '') + ('\n' + completed.stderr if completed.stderr else '')
-    flash(output or 'Model download completed.', 'success' if completed.returncode == 0 else 'error')
-    return redirect(url_for('voxtral_manager'))
-
-
-@app.post('/voxtral/run-stt')
-def voxtral_run_stt():
-    settings = load_voxtral_settings()
-    input_audio = request.form.get('input_audio', '').strip()
-    if not input_audio:
-        flash('Input audio path is required.', 'error')
-        return redirect(url_for('voxtral_manager'))
-
-    command = [
-        sys.executable,
-        str(VOXTRAL_SCRIPT),
-        'stt',
-        '--input',
-        input_audio,
-        '--model',
-        request.form.get('stt_model', settings['default_stt_model']).strip() or settings['default_stt_model'],
-        '--device',
-        request.form.get('device', settings['device']).strip() or settings['device'],
-        '--compute-type',
-        request.form.get('compute_type', settings['compute_type']).strip() or settings['compute_type'],
-        '--task',
-        request.form.get('stt_task', 'transcribe').strip() or 'transcribe',
-        '--beam-size',
-        request.form.get('beam_size', '5').strip() or '5',
-    ]
-
-    language = request.form.get('language', settings['language']).strip()
-    if language:
-        command.extend(['--language', language])
-    if request.form.get('vad_filter'):
-        command.append('--vad-filter')
-    if request.form.get('word_timestamps'):
-        command.append('--word-timestamps')
-
-    stt_output = request.form.get('stt_output', settings['stt_output']).strip()
-    if stt_output:
-        command.extend(['--output', stt_output])
-
-    completed = subprocess.run(command, cwd=str(SCRIPTS_DIR), capture_output=True, text=True)
-    output = (completed.stdout or '') + ('\n' + completed.stderr if completed.stderr else '')
-    flash(output or 'STT completed.', 'success' if completed.returncode == 0 else 'error')
-    return redirect(url_for('voxtral_manager'))
-
-
-@app.post('/voxtral/run-tts')
-def voxtral_run_tts():
-    settings = load_voxtral_settings()
-    text_value = request.form.get('tts_text', '').strip()
-    if not text_value:
-        flash('Text is required for TTS.', 'error')
-        return redirect(url_for('voxtral_manager'))
-
-    command = [
-        sys.executable,
-        str(VOXTRAL_SCRIPT),
-        'tts',
-        '--text',
-        text_value,
-        '--output',
-        request.form.get('tts_output', settings['tts_output']).strip() or settings['tts_output'],
-        '--model',
-        request.form.get('tts_model', settings['default_tts_model']).strip() or settings['default_tts_model'],
-        '--language',
-        request.form.get('language', settings['language']).strip() or settings['language'],
-        '--speed',
-        request.form.get('tts_speed', '1.0').strip() or '1.0',
-        '--device',
-        request.form.get('device', settings['device']).strip() or settings['device'],
-    ]
-    speaker_wav = request.form.get('speaker_wav', '').strip()
-    if speaker_wav:
-        command.extend(['--speaker-wav', speaker_wav])
-
-    completed = subprocess.run(command, cwd=str(SCRIPTS_DIR), capture_output=True, text=True)
-    output = (completed.stdout or '') + ('\n' + completed.stderr if completed.stderr else '')
-    flash(output or 'TTS completed.', 'success' if completed.returncode == 0 else 'error')
-    return redirect(url_for('voxtral_manager'))
-
-
-@app.post('/voxtral/generate-hotkey')
-def voxtral_generate_hotkey():
-    settings = load_voxtral_settings()
-    command = [
-        sys.executable,
-        str(VOXTRAL_SCRIPT),
-        'hotkey',
-        '--mode',
-        request.form.get('hotkey_mode', 'windows-ahk-stt').strip() or 'windows-ahk-stt',
-        '--hotkey',
-        request.form.get('hotkey_combo', 'ctrl+shift+space').strip() or 'ctrl+shift+space',
-        '--output',
-        request.form.get('hotkey_output', settings['hotkey_output']).strip() or settings['hotkey_output'],
-        '--tool-root',
-        str(BASE_DIR),
-    ]
-    completed = subprocess.run(command, cwd=str(SCRIPTS_DIR), capture_output=True, text=True)
-    output = (completed.stdout or '') + ('\n' + completed.stderr if completed.stderr else '')
-    flash(output or 'Hotkey helper generated.', 'success' if completed.returncode == 0 else 'error')
-    return redirect(url_for('voxtral_manager'))
 
 
 if __name__ == '__main__':
