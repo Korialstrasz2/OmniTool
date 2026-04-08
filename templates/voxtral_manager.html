@@ -1,0 +1,146 @@
+{% extends 'base.html' %}
+{% block content %}
+  <h2>Voxtral Local Suite (STT/TTS)</h2>
+  <p class="lead">
+    Setup locale orientato alla privacy per pipeline STT/TTS con ricerca GGUF, download modelli,
+    opzioni di voice cloning (speaker reference), e integrazione hotkey (Windows AutoHotkey / script Linux).
+    Il tool usa solamente esecuzione locale: nessuna chiamata cloud obbligatoria.
+  </p>
+
+  <section class="card">
+    <div class="card-header">
+      <h3>Configurazione globale</h3>
+      <p>Percorsi persistenti, modelli default e parametri runtime base.</p>
+    </div>
+    <form class="stack" method="post" action="{{ url_for('voxtral_save_settings') }}">
+      <div class="form-grid">
+        <label><span>Venv path</span><input type="text" name="venv_path" value="{{ settings['venv_path'] }}"></label>
+        <label><span>Models dir</span><input type="text" name="models_dir" value="{{ settings['models_dir'] }}"></label>
+        <label><span>Device</span><input type="text" name="device" value="{{ settings['device'] }}"></label>
+      </div>
+      <div class="form-grid">
+        <label><span>Default STT model</span><input type="text" name="default_stt_model" value="{{ settings['default_stt_model'] }}"></label>
+        <label><span>Default TTS model</span><input type="text" name="default_tts_model" value="{{ settings['default_tts_model'] }}"></label>
+        <label><span>Compute type</span><input type="text" name="compute_type" value="{{ settings['compute_type'] }}"></label>
+      </div>
+      <div class="form-grid">
+        <label><span>Language</span><input type="text" name="language" value="{{ settings['language'] }}"></label>
+        <label><span>STT output file</span><input type="text" name="stt_output" value="{{ settings['stt_output'] }}"></label>
+        <label><span>TTS output file</span><input type="text" name="tts_output" value="{{ settings['tts_output'] }}"></label>
+      </div>
+      <div class="form-grid">
+        <label><span>Hotkey output file</span><input type="text" name="hotkey_output" value="{{ settings['hotkey_output'] }}"></label>
+        <label><span>GGUF query</span><input type="text" name="gguf_query" value="{{ settings['gguf_query'] }}"></label>
+      </div>
+      <button type="submit">Save settings</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <div class="card-header">
+      <h3>Bootstrap locale (venv + dipendenze)</h3>
+      <p>Crea virtualenv dedicato e installa dipendenze STT/TTS; abilita GPU e clone voice dove richiesto.</p>
+    </div>
+    <form class="stack" method="post" action="{{ url_for('voxtral_setup') }}">
+      <div class="form-grid">
+        <label><span>Venv path</span><input type="text" name="venv_path" value="{{ settings['venv_path'] }}"></label>
+      </div>
+      <label class="checkbox-inline"><input type="checkbox" name="with_gpu" checked>Installa dipendenze GPU quando disponibili</label>
+      <label class="checkbox-inline"><input type="checkbox" name="with_clone" checked>Installa librerie extra per voice cloning</label>
+      <button type="submit">Setup completo locale</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <div class="card-header">
+      <h3>GGUF scouting + download modelli</h3>
+      <p>Ricerca modelli su Hugging Face (query libera) e scarica file manualmente in path locale.</p>
+    </div>
+    <form class="stack" method="post" action="{{ url_for('voxtral_search_gguf') }}">
+      <div class="form-grid">
+        <label><span>Query</span><input type="text" name="gguf_query" value="{{ settings['gguf_query'] }}"></label>
+        <label><span>Limit</span><input type="number" name="gguf_limit" value="30" min="1" max="100"></label>
+      </div>
+      <button type="submit">Cerca GGUF</button>
+    </form>
+
+    <form class="stack" method="post" action="{{ url_for('voxtral_download_model') }}">
+      <div class="form-grid">
+        <label><span>Model URL diretta</span><input type="text" name="model_url" placeholder="https://huggingface.co/.../resolve/main/model.gguf"></label>
+        <label><span>Output locale</span><input type="text" name="model_output" value="{{ settings['models_dir'] }}/model.gguf"></label>
+      </div>
+      <button type="submit">Scarica modello</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <div class="card-header">
+      <h3>STT professionale</h3>
+      <p>Trascrizione locale con VAD, timestamps parola-per-parola, beam search e controllo device.</p>
+    </div>
+    <form class="stack" method="post" action="{{ url_for('voxtral_run_stt') }}">
+      <div class="form-grid">
+        <label><span>Input audio</span><input type="text" name="input_audio" placeholder="D:/audio/input.wav" required></label>
+        <label><span>Model</span><input type="text" name="stt_model" value="{{ settings['default_stt_model'] }}"></label>
+        <label><span>Task</span>
+          <select name="stt_task"><option value="transcribe">transcribe</option><option value="translate">translate</option></select>
+        </label>
+      </div>
+      <div class="form-grid">
+        <label><span>Device</span><input type="text" name="device" value="{{ settings['device'] }}"></label>
+        <label><span>Compute type</span><input type="text" name="compute_type" value="{{ settings['compute_type'] }}"></label>
+        <label><span>Beam size</span><input type="number" name="beam_size" value="5" min="1"></label>
+      </div>
+      <div class="form-grid">
+        <label><span>Language</span><input type="text" name="language" value="{{ settings['language'] }}"></label>
+        <label><span>Output text</span><input type="text" name="stt_output" value="{{ settings['stt_output'] }}"></label>
+      </div>
+      <label class="checkbox-inline"><input type="checkbox" name="vad_filter" checked>VAD filter</label>
+      <label class="checkbox-inline"><input type="checkbox" name="word_timestamps">Word timestamps</label>
+      <button type="submit">Run STT</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <div class="card-header">
+      <h3>TTS + voice cloning</h3>
+      <p>Genera voce locale (multilingua) con reference speaker opzionale per cloning one-shot.</p>
+    </div>
+    <form class="stack" method="post" action="{{ url_for('voxtral_run_tts') }}">
+      <label><span>Testo</span><textarea name="tts_text" rows="3" placeholder="Ciao! Questo è un test locale privacy-first." required></textarea></label>
+      <div class="form-grid">
+        <label><span>TTS model</span><input type="text" name="tts_model" value="{{ settings['default_tts_model'] }}"></label>
+        <label><span>Language</span><input type="text" name="language" value="{{ settings['language'] }}"></label>
+        <label><span>Speed</span><input type="text" name="tts_speed" value="1.0"></label>
+      </div>
+      <div class="form-grid">
+        <label><span>Speaker WAV (opzionale, clone)</span><input type="text" name="speaker_wav" placeholder="D:/voices/my_voice.wav"></label>
+        <label><span>Device</span><input type="text" name="device" value="{{ settings['device'] }}"></label>
+        <label><span>Output WAV</span><input type="text" name="tts_output" value="{{ settings['tts_output'] }}"></label>
+      </div>
+      <button type="submit">Run TTS</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <div class="card-header">
+      <h3>Automazione esterna (hotkey)</h3>
+      <p>Genera launcher AutoHotkey/Script per richiamare STT/TTS fuori da OmniTool.</p>
+    </div>
+    <form class="stack" method="post" action="{{ url_for('voxtral_generate_hotkey') }}">
+      <div class="form-grid">
+        <label>
+          <span>Mode</span>
+          <select name="hotkey_mode">
+            <option value="windows-ahk-stt">Windows AHK STT</option>
+            <option value="windows-ahk-tts">Windows AHK TTS</option>
+            <option value="linux-script">Linux script</option>
+          </select>
+        </label>
+        <label><span>Hotkey combo (metadata)</span><input type="text" name="hotkey_combo" value="ctrl+shift+space"></label>
+        <label><span>Output file</span><input type="text" name="hotkey_output" value="{{ settings['hotkey_output'] }}"></label>
+      </div>
+      <button type="submit">Generate helper</button>
+    </form>
+  </section>
+{% endblock %}
