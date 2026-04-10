@@ -3,7 +3,10 @@ import os
 import shlex
 import subprocess
 import sys
+import threading
+import uuid
 from pathlib import Path
+from datetime import datetime, timezone
 from typing import Dict, List, Tuple
 
 from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
@@ -21,11 +24,18 @@ LYRICS_CONFIG = SCRIPTS_DIR / 'lyrics_embedder_config.json'
 MEDIA_HARVESTER_SCRIPT = SCRIPTS_DIR / 'media_harvester.py'
 MEDIA_PASSIVE_CAPTURE_SCRIPT = SCRIPTS_DIR / 'media_passive_capture.py'
 MEDIA_HARVESTER_DEFAULTS = SCRIPTS_DIR / 'media_harvester_defaults.json'
+PASSIVE_CAPTURE_JOBS: Dict[str, Dict[str, object]] = {}
+PASSIVE_CAPTURE_LOCK = threading.Lock()
 
 try:
     from openai import OpenAI
 except Exception:  # pragma: no cover - optional runtime dependency
     OpenAI = None  # type: ignore
+
+try:
+    from scripts import media_passive_capture as passive_capture_module
+except Exception:  # pragma: no cover - import optional during partial installs
+    passive_capture_module = None  # type: ignore
 
 
 
@@ -72,6 +82,105 @@ def coerce_media_harvester_values(values):
         values['all_page'] = '1'
 
     return values
+
+
+def _iso_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _create_passive_job(payload: Dict[str, object]) -> str:
+    job_id = uuid.uuid4().hex[:12]
+    job = {
+        'id': job_id,
+        'status': 'queued',
+        'progress': 0,
+        'step': 'Queued',
+        'created_at': _iso_now(),
+        'updated_at': _iso_now(),
+        'config': payload,
+        'logs': [],
+        'result': {'success': 0, 'failed': 0},
+    }
+    with PASSIVE_CAPTURE_LOCK:
+        PASSIVE_CAPTURE_JOBS[job_id] = job
+    return job_id
+
+
+def _append_job_log(job: Dict[str, object], line: str) -> None:
+    logs = job.get('logs')
+    if isinstance(logs, list):
+        logs.append(line)
+        if len(logs) > 300:
+            del logs[:-300]
+
+
+def _run_passive_capture_job(job_id: str) -> None:
+    with PASSIVE_CAPTURE_LOCK:
+        job = PASSIVE_CAPTURE_JOBS.get(job_id)
+    if not job:
+        return
+    if passive_capture_module is None:
+        job['status'] = 'failed'
+        job['step'] = 'Module import error'
+        job['progress'] = 100
+        _append_job_log(job, 'Passive capture module unavailable.')
+        return
+
+    cfg = job['config']
+    output_dir = Path(str(cfg['output_dir'])).expanduser().resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    mode = str(cfg['mode'])
+    try:
+        job['status'] = 'running'
+        job['step'] = 'Capturing stream URLs'
+        job['progress'] = 10
+        job['updated_at'] = _iso_now()
+        _append_job_log(job, f"Starting capture in {mode} mode.")
+        hits = passive_capture_module.capture_with_playwright(
+            str(cfg['url']),
+            int(cfg['capture_seconds']),
+            int(cfg['idle_seconds']),
+            bool(cfg['headless']),
+        )
+        job['progress'] = 55
+        job['step'] = f'Captured {len(hits)} stream candidates'
+        job['updated_at'] = _iso_now()
+        _append_job_log(job, f"Captured {len(hits)} stream candidates.")
+
+        if not bool(cfg['auto_download']):
+            job['status'] = 'done'
+            job['progress'] = 100
+            job['step'] = 'Capture complete (auto-download disabled)'
+            job['updated_at'] = _iso_now()
+            return
+
+        if not hits:
+            job['status'] = 'done'
+            job['progress'] = 100
+            job['step'] = 'No stream URLs discovered'
+            job['updated_at'] = _iso_now()
+            return
+
+        job['step'] = 'Downloading captured streams'
+        job['progress'] = 70
+        success, failed, debug = passive_capture_module.download_hits(hits, output_dir, mode)
+        job['result'] = {'success': success, 'failed': failed}
+        for line in debug:
+            _append_job_log(job, line)
+        job['progress'] = 100
+        job['updated_at'] = _iso_now()
+        if failed == 0:
+            job['status'] = 'done'
+            job['step'] = f'Download complete ({success} succeeded)'
+        else:
+            job['status'] = 'done'
+            job['step'] = f'Download complete ({success} succeeded, {failed} failed)'
+    except Exception as exc:  # pragma: no cover
+        job['status'] = 'failed'
+        job['progress'] = 100
+        job['step'] = 'Capture failed'
+        job['updated_at'] = _iso_now()
+        _append_job_log(job, f'Error: {exc}')
 
 def load_tools():
     """Load tool definitions from tools.json."""
@@ -295,42 +404,23 @@ def media_harvester():
 
             if values['passive_mode'] not in {'slow', 'fast', 'elusive-sites'}:
                 values['passive_mode'] = 'slow'
-
-            command = [
-                sys.executable,
-                str(MEDIA_PASSIVE_CAPTURE_SCRIPT),
-                '--output', values['passive_output_dir'],
-                '--mode', values['passive_mode'],
-                '--capture-seconds', values['passive_capture_seconds'],
-                '--idle-seconds', values['passive_idle_seconds'],
-            ]
-            if values['passive_page_url']:
-                command.extend(['--url', values['passive_page_url']])
-            if values['passive_headless']:
-                command.append('--headless')
-            if values['passive_auto_download']:
-                command.append('--auto-download')
-
-            try:
-                completed = subprocess.run(
-                    command,
-                    cwd=str(SCRIPTS_DIR),
-                    capture_output=True,
-                    text=True,
-                    timeout=60 * 20,
-                )
-                output = (completed.stdout or '') + ('\n' + completed.stderr if completed.stderr else '')
-                if completed.returncode == 0:
-                    flash('Passive capture completed.', 'success')
-                else:
-                    flash('Passive capture finished with errors. Review run output below.', 'error')
-            except subprocess.TimeoutExpired:
-                output = 'Passive capture timed out after 20 minutes.'
-                flash(output, 'error')
-            except Exception as exc:  # pragma: no cover
-                output = f'Failed to run passive capture: {exc}'
-                flash(output, 'error')
-
+            if not values['passive_page_url']:
+                flash('Please enter a player page URL for passive capture.', 'error')
+                return render_template('media_harvester.html', values=values, output=output)
+            payload = {
+                'url': values['passive_page_url'],
+                'output_dir': values['passive_output_dir'],
+                'mode': values['passive_mode'],
+                'capture_seconds': int(values['passive_capture_seconds']),
+                'idle_seconds': int(values['passive_idle_seconds']),
+                'headless': bool(values['passive_headless']),
+                'auto_download': bool(values['passive_auto_download']),
+            }
+            job_id = _create_passive_job(payload)
+            thread = threading.Thread(target=_run_passive_capture_job, args=(job_id,), daemon=True)
+            thread.start()
+            output = f'Passive capture job started: {job_id}'
+            flash('Passive capture started in background.', 'success')
             return render_template('media_harvester.html', values=values, output=output)
 
         values.update({
@@ -475,6 +565,39 @@ def media_harvester_check_tools():
     except Exception as exc:  # pragma: no cover
         flash(f'Failed to run tool check: {exc}', 'error')
     return redirect(url_for('media_harvester'))
+
+
+@app.post('/media-harvester/passive/start')
+def media_harvester_passive_start():
+    values = {
+        'url': request.form.get('passive_page_url', '').strip(),
+        'output_dir': request.form.get('passive_output_dir', str(SCRIPTS_DIR / 'media_downloads')).strip(),
+        'mode': request.form.get('passive_mode', 'slow').strip() or 'slow',
+        'capture_seconds': request.form.get('passive_capture_seconds', '90').strip() or '90',
+        'idle_seconds': request.form.get('passive_idle_seconds', '12').strip() or '12',
+        'headless': bool(request.form.get('passive_headless')),
+        'auto_download': bool(request.form.get('passive_auto_download')),
+    }
+    if not values['url']:
+        return jsonify({'ok': False, 'error': 'Missing passive page URL.'}), 400
+    if values['mode'] not in {'slow', 'fast', 'elusive-sites'}:
+        values['mode'] = 'slow'
+    try:
+        values['capture_seconds'] = max(20, int(str(values['capture_seconds'])))
+        values['idle_seconds'] = max(3, int(str(values['idle_seconds'])))
+    except ValueError:
+        return jsonify({'ok': False, 'error': 'Capture/idle values must be valid integers.'}), 400
+    job_id = _create_passive_job(values)
+    threading.Thread(target=_run_passive_capture_job, args=(job_id,), daemon=True).start()
+    return jsonify({'ok': True, 'job_id': job_id})
+
+
+@app.get('/media-harvester/passive/jobs')
+def media_harvester_passive_jobs():
+    with PASSIVE_CAPTURE_LOCK:
+        jobs = list(PASSIVE_CAPTURE_JOBS.values())
+    jobs.sort(key=lambda item: str(item.get('created_at', '')), reverse=True)
+    return jsonify({'jobs': jobs[:20]})
 
 
 @app.route('/csv-editor')
