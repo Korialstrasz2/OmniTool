@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import hashlib
 import re
 import shutil
 import subprocess
@@ -106,7 +107,15 @@ def sanitize_filename(url: str, fallback: str) -> str:
     return cleaned[:100] or fallback
 
 
-def run_yt_dlp(stream_url: str, output_dir: Path) -> tuple[bool, str]:
+def _download_identity(stream_url: str, work_id: str) -> tuple[str, Path]:
+    token = hashlib.sha1(stream_url.encode("utf-8")).hexdigest()[:10]
+    label = f"{work_id}_{token}"
+    work_dir = Path("work") / label
+    return label, work_dir
+
+
+def run_yt_dlp(stream_url: str, output_dir: Path, work_id: str = "job") -> tuple[bool, str]:
+    _, work_subdir = _download_identity(stream_url, work_id)
     output_template = str(output_dir / "%(title).120s_%(id)s.%(ext)s")
     parsed = urlparse(stream_url)
     referer = f"{parsed.scheme}://{parsed.netloc}/" if parsed.scheme and parsed.netloc else ""
@@ -126,6 +135,8 @@ def run_yt_dlp(stream_url: str, output_dir: Path) -> tuple[bool, str]:
         "exp=1:8",
         "--concurrent-fragments",
         "8",
+        "--paths",
+        f"temp:{work_subdir.as_posix()}",
         "--hls-prefer-native",
         "--extractor-retries",
         "6",
@@ -146,8 +157,9 @@ def run_yt_dlp(stream_url: str, output_dir: Path) -> tuple[bool, str]:
         return False, f"yt-dlp timeout after 30m\n{output[-1800:]}"
 
 
-def run_yt_dlp_resilient(stream_url: str, output_dir: Path) -> tuple[bool, str]:
+def run_yt_dlp_resilient(stream_url: str, output_dir: Path, work_id: str = "job") -> tuple[bool, str]:
     """Attempt yt-dlp with fallback argument profiles for hard-to-fetch streams."""
+    _, work_subdir = _download_identity(stream_url, work_id)
     output_template = str(output_dir / "%(title).120s_%(id)s.%(ext)s")
     strategies = [
         ["--hls-prefer-native"],
@@ -175,6 +187,8 @@ def run_yt_dlp_resilient(stream_url: str, output_dir: Path) -> tuple[bool, str]:
             "exp=1:10",
             "--concurrent-fragments",
             "8",
+            "--paths",
+            f"temp:{work_subdir.as_posix()}",
             "--output",
             output_template,
             *extra_args,
@@ -194,8 +208,9 @@ def run_yt_dlp_resilient(stream_url: str, output_dir: Path) -> tuple[bool, str]:
     return False, "\n---\n".join(failures)[-2500:]
 
 
-def run_ffmpeg_passthrough(stream_url: str, output_dir: Path) -> tuple[bool, str]:
-    out_file = output_dir / f"{sanitize_filename(stream_url, 'stream_capture')}.mp4"
+def run_ffmpeg_passthrough(stream_url: str, output_dir: Path, work_id: str = "job") -> tuple[bool, str]:
+    label, _ = _download_identity(stream_url, work_id)
+    out_file = output_dir / f"{sanitize_filename(stream_url, 'stream_capture')}_{label}.mp4"
     cmd = [
         "ffmpeg",
         "-y",
@@ -224,9 +239,10 @@ def run_ffmpeg_passthrough(stream_url: str, output_dir: Path) -> tuple[bool, str
         return False, f"ffmpeg copy timeout after 25m\n{output[-1800:]}"
 
 
-def run_ffmpeg_reencode(stream_url: str, output_dir: Path) -> tuple[bool, str]:
+def run_ffmpeg_reencode(stream_url: str, output_dir: Path, work_id: str = "job") -> tuple[bool, str]:
     """Fallback for snippet/fragment sources that fail stream copy."""
-    out_file = output_dir / f"{sanitize_filename(stream_url, 'stream_capture')}_reencode.mp4"
+    label, _ = _download_identity(stream_url, work_id)
+    out_file = output_dir / f"{sanitize_filename(stream_url, 'stream_capture')}_{label}_reencode.mp4"
     cmd = [
         "ffmpeg",
         "-y",
@@ -257,12 +273,13 @@ def run_ffmpeg_reencode(stream_url: str, output_dir: Path) -> tuple[bool, str]:
         return False, f"ffmpeg reencode timeout after 30m\n{output[-1800:]}"
 
 
-def run_curl_fetch(stream_url: str, output_dir: Path) -> tuple[bool, str]:
+def run_curl_fetch(stream_url: str, output_dir: Path, work_id: str = "job") -> tuple[bool, str]:
     """Last-resort direct fetch for segment/snippet style URLs."""
     curl_path = shutil.which("curl")
     if not curl_path:
         return False, "curl not installed"
-    out_file = output_dir / f"{sanitize_filename(stream_url, 'stream_capture')}.bin"
+    label, _ = _download_identity(stream_url, work_id)
+    out_file = output_dir / f"{sanitize_filename(stream_url, 'stream_capture')}_{label}.bin"
     cmd = [
         curl_path,
         "-L",
@@ -291,7 +308,7 @@ def run_curl_fetch(stream_url: str, output_dir: Path) -> tuple[bool, str]:
         return False, f"curl timeout after 15m\n{output[-1800:]}"
 
 
-def download_hits(hits: list[StreamHit], output_dir: Path, mode: str) -> tuple[int, int, list[str]]:
+def download_hits(hits: list[StreamHit], output_dir: Path, mode: str, parallel_downloads: int = 3) -> tuple[int, int, list[str]]:
     debug: list[str] = []
     success = 0
     failed = 0
@@ -315,33 +332,36 @@ def download_hits(hits: list[StreamHit], output_dir: Path, mode: str) -> tuple[i
             key=lambda hit: 0 if any(token in hit.url.lower() for token in (".m3u8", ".mpd")) else 1,
         )
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+    max_workers = max(1, min(int(parallel_downloads), 12))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = []
-        for hit in targets:
+        for idx, hit in enumerate(targets, start=1):
+            work_id = f"hit{idx:03d}"
             if mode == "elusive-sites":
-                futures.append(pool.submit(run_yt_dlp_resilient, hit.url, output_dir))
+                futures.append(pool.submit(run_yt_dlp_resilient, hit.url, output_dir, work_id))
             else:
-                futures.append(pool.submit(run_yt_dlp, hit.url, output_dir))
+                futures.append(pool.submit(run_yt_dlp, hit.url, output_dir, work_id))
 
-        for hit, future in zip(targets, futures):
+        for idx, (hit, future) in enumerate(zip(targets, futures), start=1):
+            work_id = f"hit{idx:03d}"
             ok, msg = future.result()
             if ok:
                 success += 1
                 strategy = "yt-dlp resilient" if mode == "elusive-sites" else "yt-dlp"
                 debug.append(f"[OK] {strategy} -> {hit.url}")
                 continue
-            ff_ok, ff_msg = run_ffmpeg_passthrough(hit.url, output_dir)
+            ff_ok, ff_msg = run_ffmpeg_passthrough(hit.url, output_dir, work_id)
             if ff_ok:
                 success += 1
                 debug.append(f"[OK] ffmpeg copy -> {hit.url}")
             else:
                 if mode == "elusive-sites":
-                    reenc_ok, reenc_msg = run_ffmpeg_reencode(hit.url, output_dir)
+                    reenc_ok, reenc_msg = run_ffmpeg_reencode(hit.url, output_dir, work_id)
                     if reenc_ok:
                         success += 1
                         debug.append(f"[OK] ffmpeg reencode -> {hit.url}")
                         continue
-                    curl_ok, curl_msg = run_curl_fetch(hit.url, output_dir)
+                    curl_ok, curl_msg = run_curl_fetch(hit.url, output_dir, work_id)
                     if curl_ok:
                         success += 1
                         debug.append(f"[OK] curl fallback -> {hit.url}")
@@ -375,6 +395,12 @@ def main() -> int:
     parser.add_argument("--idle-seconds", type=int, default=12, help="Stop after this idle period once stream URLs are found")
     parser.add_argument("--headless", action="store_true", help="Run browser headless")
     parser.add_argument("--auto-download", action="store_true", help="Immediately download captured stream URLs")
+    parser.add_argument(
+        "--parallel-downloads",
+        type=int,
+        default=3,
+        help="Maximum simultaneous downloads (clamped to 1-12)",
+    )
     args = parser.parse_args()
 
     if not args.url:
@@ -402,7 +428,7 @@ def main() -> int:
         print("Auto-download disabled. Re-run with --auto-download to fetch captured streams.")
         return 0
 
-    success, failed, debug = download_hits(hits, out_dir, args.mode)
+    success, failed, debug = download_hits(hits, out_dir, args.mode, args.parallel_downloads)
     print("\n=== Download summary ===")
     print(f"Success: {success}")
     print(f"Failed : {failed}")
