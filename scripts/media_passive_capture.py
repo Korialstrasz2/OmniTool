@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import hashlib
+import math
 import re
 import shutil
 import subprocess
@@ -114,9 +115,72 @@ def _download_identity(stream_url: str, work_id: str) -> tuple[str, Path]:
     return label, work_dir
 
 
+def _output_template_for_work(output_dir: Path, work_id: str) -> str:
+    return str(output_dir / f"{work_id}_%(title).80s_%(id)s.%(ext)s")
+
+
+def _find_work_outputs(output_dir: Path, work_id: str) -> list[Path]:
+    return sorted(
+        candidate
+        for candidate in output_dir.glob(f"{work_id}_*")
+        if candidate.is_file()
+    )
+
+
+def _is_playable_media(path: Path) -> bool:
+    if not path.exists() or not path.is_file():
+        return False
+    # Tiny files are usually partial manifests or snippets, not complete media.
+    if path.stat().st_size < 128 * 1024:
+        return False
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return True
+    try:
+        probe = subprocess.run(
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        if probe.returncode != 0:
+            return False
+        raw = (probe.stdout or "").strip()
+        if not raw:
+            return False
+        duration = float(raw)
+        return math.isfinite(duration) and duration > 0.1
+    except Exception:
+        return False
+
+
+def _validate_outputs(output_dir: Path, work_id: str, output_log: str) -> tuple[bool, str]:
+    outputs = _find_work_outputs(output_dir, work_id)
+    if not outputs:
+        return False, f"{output_log}\nNo output files were produced."
+    playable = [path for path in outputs if _is_playable_media(path)]
+    if playable:
+        return True, output_log
+    sample_names = ", ".join(path.name for path in outputs[:4])
+    return (
+        False,
+        f"{output_log}\nOutput files failed media validation ({sample_names}). "
+        "Likely captured manifest/snippet placeholders instead of full playable media.",
+    )
+
+
 def run_yt_dlp(stream_url: str, output_dir: Path, work_id: str = "job") -> tuple[bool, str]:
     _, work_subdir = _download_identity(stream_url, work_id)
-    output_template = str(output_dir / "%(title).120s_%(id)s.%(ext)s")
+    output_template = _output_template_for_work(output_dir, work_id)
     parsed = urlparse(stream_url)
     referer = f"{parsed.scheme}://{parsed.netloc}/" if parsed.scheme and parsed.netloc else ""
     cmd = [
@@ -151,7 +215,9 @@ def run_yt_dlp(stream_url: str, output_dir: Path, work_id: str = "job") -> tuple
     try:
         completed = subprocess.run(cmd, capture_output=True, text=True, timeout=60 * 30)
         output = (completed.stdout or "") + ("\n" + completed.stderr if completed.stderr else "")
-        return completed.returncode == 0, output[-2000:]
+        if completed.returncode != 0:
+            return False, output[-2000:]
+        return _validate_outputs(output_dir, work_id, output[-2000:])
     except subprocess.TimeoutExpired as exc:
         output = (exc.stdout or "") + ("\n" + exc.stderr if exc.stderr else "")
         return False, f"yt-dlp timeout after 30m\n{output[-1800:]}"
@@ -160,7 +226,7 @@ def run_yt_dlp(stream_url: str, output_dir: Path, work_id: str = "job") -> tuple
 def run_yt_dlp_resilient(stream_url: str, output_dir: Path, work_id: str = "job") -> tuple[bool, str]:
     """Attempt yt-dlp with fallback argument profiles for hard-to-fetch streams."""
     _, work_subdir = _download_identity(stream_url, work_id)
-    output_template = str(output_dir / "%(title).120s_%(id)s.%(ext)s")
+    output_template = _output_template_for_work(output_dir, work_id)
     strategies = [
         ["--hls-prefer-native"],
         ["--hls-use-mpegts", "--downloader", "ffmpeg"],
@@ -200,7 +266,11 @@ def run_yt_dlp_resilient(stream_url: str, output_dir: Path, work_id: str = "job"
             completed = subprocess.run(cmd, capture_output=True, text=True, timeout=60 * 35)
             output = (completed.stdout or "") + ("\n" + completed.stderr if completed.stderr else "")
             if completed.returncode == 0:
-                return True, output[-2000:]
+                ok, validated = _validate_outputs(output_dir, work_id, output[-2000:])
+                if ok:
+                    return True, validated
+                failures.append(validated[-450:] or "yt-dlp produced unplayable output")
+                continue
             failures.append(output[-450:] or "yt-dlp failed")
         except subprocess.TimeoutExpired as exc:
             output = (exc.stdout or "") + ("\n" + exc.stderr if exc.stderr else "")
@@ -233,7 +303,11 @@ def run_ffmpeg_passthrough(stream_url: str, output_dir: Path, work_id: str = "jo
     try:
         completed = subprocess.run(cmd, capture_output=True, text=True, timeout=60 * 25)
         output = (completed.stdout or "") + ("\n" + completed.stderr if completed.stderr else "")
-        return completed.returncode == 0, output[-2000:]
+        if completed.returncode != 0:
+            return False, output[-2000:]
+        if not _is_playable_media(out_file):
+            return False, f"{output[-1600:]}\nffmpeg output is not playable: {out_file.name}"
+        return True, output[-2000:]
     except subprocess.TimeoutExpired as exc:
         output = (exc.stdout or "") + ("\n" + exc.stderr if exc.stderr else "")
         return False, f"ffmpeg copy timeout after 25m\n{output[-1800:]}"
@@ -267,7 +341,11 @@ def run_ffmpeg_reencode(stream_url: str, output_dir: Path, work_id: str = "job")
     try:
         completed = subprocess.run(cmd, capture_output=True, text=True, timeout=60 * 30)
         output = (completed.stdout or "") + ("\n" + completed.stderr if completed.stderr else "")
-        return completed.returncode == 0, output[-2000:]
+        if completed.returncode != 0:
+            return False, output[-2000:]
+        if not _is_playable_media(out_file):
+            return False, f"{output[-1600:]}\nffmpeg re-encode output is not playable: {out_file.name}"
+        return True, output[-2000:]
     except subprocess.TimeoutExpired as exc:
         output = (exc.stdout or "") + ("\n" + exc.stderr if exc.stderr else "")
         return False, f"ffmpeg reencode timeout after 30m\n{output[-1800:]}"
