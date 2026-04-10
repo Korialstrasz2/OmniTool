@@ -140,7 +140,7 @@ https://example.com/page-two">{{ values.urls_text }}</textarea>
     <li>Review output logs to see intercepted stream URLs and download results.</li>
   </ol>
 
-  <form method="post" class="stack">
+  <form method="post" class="stack" id="passiveCaptureForm">
     <input type="hidden" name="workflow" value="passive">
     <div class="form-grid">
       <label>
@@ -187,9 +187,10 @@ https://example.com/page-two">{{ values.urls_text }}</textarea>
     </div>
 
     <div class="actions wrap-actions">
-      <button type="submit">Run Passive Capture</button>
+      <button type="submit" id="startPassiveCaptureBtn">Run Passive Capture</button>
     </div>
   </form>
+  <div id="passiveCaptureJobs" class="stack"></div>
 </section>
 
 {% if output %}
@@ -255,6 +256,67 @@ https://example.com/page-two">{{ values.urls_text }}</textarea>
     modeEl.addEventListener('change', sync);
     siteModeEl.addEventListener('change', sync);
     sync();
+  })();
+
+  (() => {
+    const form = document.getElementById('passiveCaptureForm');
+    const jobsWrap = document.getElementById('passiveCaptureJobs');
+    if (!form || !jobsWrap) return;
+
+    const renderJobs = (jobs) => {
+      if (!jobs.length) {
+        jobsWrap.innerHTML = '<p class="help-text">No passive capture jobs yet.</p>';
+        return;
+      }
+      jobsWrap.innerHTML = jobs.map((job) => {
+        const progress = Number(job.progress || 0);
+        const statusClass = job.status === 'failed' ? 'text-danger' : (job.status === 'done' ? 'text-success' : '');
+        const logs = (job.logs || []).slice(-8).join('\n');
+        return `
+          <section class="card">
+            <h4>Job ${job.id}</h4>
+            <p class="help-text ${statusClass}">${job.status} · ${job.step || ''}</p>
+            <div class="progress-track">
+              <div class="progress-fill" style="width:${Math.max(0, Math.min(100, progress))}%"></div>
+            </div>
+            <p class="help-text">${progress}% complete</p>
+            <pre class="logs-output">${logs || 'No logs yet.'}</pre>
+          </section>
+        `;
+      }).join('');
+    };
+
+    const loadJobs = async () => {
+      try {
+        const response = await fetch('{{ url_for("media_harvester_passive_jobs") }}');
+        if (!response.ok) return;
+        const data = await response.json();
+        renderJobs(data.jobs || []);
+      } catch (err) {
+        // keep silent; we'll retry on next poll
+      }
+    };
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      try {
+        const response = await fetch('{{ url_for("media_harvester_passive_start") }}', {
+          method: 'POST',
+          body: new FormData(form),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) {
+          alert(data.error || 'Failed to start passive capture job.');
+          return;
+        }
+        await loadJobs();
+      } catch (err) {
+        alert('Failed to start passive capture job.');
+      }
+    });
+
+    loadJobs();
+    setInterval(loadJobs, 2000);
   })();
 </script>
 {% endblock %}

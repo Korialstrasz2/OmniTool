@@ -12,6 +12,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 MEDIA_MARKERS = (
     ".m3u8",
@@ -107,28 +108,52 @@ def sanitize_filename(url: str, fallback: str) -> str:
 
 def run_yt_dlp(stream_url: str, output_dir: Path) -> tuple[bool, str]:
     output_template = str(output_dir / "%(title).120s_%(id)s.%(ext)s")
+    parsed = urlparse(stream_url)
+    referer = f"{parsed.scheme}://{parsed.netloc}/" if parsed.scheme and parsed.netloc else ""
     cmd = [
         sys.executable,
         "-m",
         "yt_dlp",
         "--no-overwrites",
         "--restrict-filenames",
+        "--socket-timeout",
+        "30",
+        "--retries",
+        "15",
+        "--fragment-retries",
+        "20",
+        "--retry-sleep",
+        "exp=1:8",
+        "--concurrent-fragments",
+        "8",
+        "--hls-prefer-native",
+        "--extractor-retries",
+        "6",
         "--output",
         output_template,
+        "--add-header",
+        "User-Agent:Mozilla/5.0",
         stream_url,
     ]
-    completed = subprocess.run(cmd, capture_output=True, text=True, timeout=60 * 15)
-    output = (completed.stdout or "") + ("\n" + completed.stderr if completed.stderr else "")
-    return completed.returncode == 0, output[-2000:]
+    if referer:
+        cmd[cmd.index(stream_url):cmd.index(stream_url)] = ["--add-header", f"Referer:{referer}"]
+    try:
+        completed = subprocess.run(cmd, capture_output=True, text=True, timeout=60 * 30)
+        output = (completed.stdout or "") + ("\n" + completed.stderr if completed.stderr else "")
+        return completed.returncode == 0, output[-2000:]
+    except subprocess.TimeoutExpired as exc:
+        output = (exc.stdout or "") + ("\n" + exc.stderr if exc.stderr else "")
+        return False, f"yt-dlp timeout after 30m\n{output[-1800:]}"
 
 
 def run_yt_dlp_resilient(stream_url: str, output_dir: Path) -> tuple[bool, str]:
     """Attempt yt-dlp with fallback argument profiles for hard-to-fetch streams."""
     output_template = str(output_dir / "%(title).120s_%(id)s.%(ext)s")
     strategies = [
-        [],
-        ["--retries", "12", "--fragment-retries", "12", "--retry-sleep", "exp=1:8"],
-        ["--force-generic-extractor", "--retries", "12", "--fragment-retries", "12", "--retry-sleep", "exp=1:8"],
+        ["--hls-prefer-native"],
+        ["--hls-use-mpegts", "--downloader", "ffmpeg"],
+        ["--force-generic-extractor", "--hls-prefer-native"],
+        ["--force-generic-extractor", "--hls-use-mpegts", "--downloader", "ffmpeg"],
     ]
     failures: list[str] = []
     for extra_args in strategies:
@@ -138,18 +163,34 @@ def run_yt_dlp_resilient(stream_url: str, output_dir: Path) -> tuple[bool, str]:
             "yt_dlp",
             "--no-overwrites",
             "--restrict-filenames",
+            "--socket-timeout",
+            "30",
+            "--retries",
+            "18",
+            "--fragment-retries",
+            "24",
+            "--extractor-retries",
+            "8",
+            "--retry-sleep",
+            "exp=1:10",
             "--concurrent-fragments",
-            "6",
+            "8",
             "--output",
             output_template,
             *extra_args,
+            "--add-header",
+            "User-Agent:Mozilla/5.0",
             stream_url,
         ]
-        completed = subprocess.run(cmd, capture_output=True, text=True, timeout=60 * 20)
-        output = (completed.stdout or "") + ("\n" + completed.stderr if completed.stderr else "")
-        if completed.returncode == 0:
-            return True, output[-2000:]
-        failures.append(output[-450:] or "yt-dlp failed")
+        try:
+            completed = subprocess.run(cmd, capture_output=True, text=True, timeout=60 * 35)
+            output = (completed.stdout or "") + ("\n" + completed.stderr if completed.stderr else "")
+            if completed.returncode == 0:
+                return True, output[-2000:]
+            failures.append(output[-450:] or "yt-dlp failed")
+        except subprocess.TimeoutExpired as exc:
+            output = (exc.stdout or "") + ("\n" + exc.stderr if exc.stderr else "")
+            failures.append(f"yt-dlp timeout after 35m\n{output[-420:]}")
     return False, "\n---\n".join(failures)[-2500:]
 
 
@@ -158,15 +199,29 @@ def run_ffmpeg_passthrough(stream_url: str, output_dir: Path) -> tuple[bool, str
     cmd = [
         "ffmpeg",
         "-y",
+        "-protocol_whitelist",
+        "file,http,https,tcp,tls,crypto",
+        "-reconnect",
+        "1",
+        "-reconnect_streamed",
+        "1",
+        "-reconnect_delay_max",
+        "8",
         "-i",
         stream_url,
         "-c",
         "copy",
+        "-bsf:a",
+        "aac_adtstoasc",
         str(out_file),
     ]
-    completed = subprocess.run(cmd, capture_output=True, text=True, timeout=60 * 15)
-    output = (completed.stdout or "") + ("\n" + completed.stderr if completed.stderr else "")
-    return completed.returncode == 0, output[-2000:]
+    try:
+        completed = subprocess.run(cmd, capture_output=True, text=True, timeout=60 * 25)
+        output = (completed.stdout or "") + ("\n" + completed.stderr if completed.stderr else "")
+        return completed.returncode == 0, output[-2000:]
+    except subprocess.TimeoutExpired as exc:
+        output = (exc.stdout or "") + ("\n" + exc.stderr if exc.stderr else "")
+        return False, f"ffmpeg copy timeout after 25m\n{output[-1800:]}"
 
 
 def run_ffmpeg_reencode(stream_url: str, output_dir: Path) -> tuple[bool, str]:
@@ -175,6 +230,14 @@ def run_ffmpeg_reencode(stream_url: str, output_dir: Path) -> tuple[bool, str]:
     cmd = [
         "ffmpeg",
         "-y",
+        "-protocol_whitelist",
+        "file,http,https,tcp,tls,crypto",
+        "-reconnect",
+        "1",
+        "-reconnect_streamed",
+        "1",
+        "-reconnect_delay_max",
+        "8",
         "-i",
         stream_url,
         "-c:v",
@@ -185,9 +248,13 @@ def run_ffmpeg_reencode(stream_url: str, output_dir: Path) -> tuple[bool, str]:
         "aac",
         str(out_file),
     ]
-    completed = subprocess.run(cmd, capture_output=True, text=True, timeout=60 * 20)
-    output = (completed.stdout or "") + ("\n" + completed.stderr if completed.stderr else "")
-    return completed.returncode == 0, output[-2000:]
+    try:
+        completed = subprocess.run(cmd, capture_output=True, text=True, timeout=60 * 30)
+        output = (completed.stdout or "") + ("\n" + completed.stderr if completed.stderr else "")
+        return completed.returncode == 0, output[-2000:]
+    except subprocess.TimeoutExpired as exc:
+        output = (exc.stdout or "") + ("\n" + exc.stderr if exc.stderr else "")
+        return False, f"ffmpeg reencode timeout after 30m\n{output[-1800:]}"
 
 
 def run_curl_fetch(stream_url: str, output_dir: Path) -> tuple[bool, str]:
@@ -202,15 +269,26 @@ def run_curl_fetch(stream_url: str, output_dir: Path) -> tuple[bool, str]:
         "--fail",
         "--silent",
         "--show-error",
+        "--retry",
+        "8",
+        "--retry-all-errors",
+        "--retry-delay",
+        "1",
+        "--connect-timeout",
+        "20",
         "--output",
         str(out_file),
         stream_url,
     ]
-    completed = subprocess.run(cmd, capture_output=True, text=True, timeout=60 * 10)
-    output = (completed.stdout or "") + ("\n" + completed.stderr if completed.stderr else "")
-    if completed.returncode == 0 and out_file.exists() and out_file.stat().st_size > 0:
-        return True, output[-2000:]
-    return False, output[-2000:] or "curl failed"
+    try:
+        completed = subprocess.run(cmd, capture_output=True, text=True, timeout=60 * 15)
+        output = (completed.stdout or "") + ("\n" + completed.stderr if completed.stderr else "")
+        if completed.returncode == 0 and out_file.exists() and out_file.stat().st_size > 0:
+            return True, output[-2000:]
+        return False, output[-2000:] or "curl failed"
+    except subprocess.TimeoutExpired as exc:
+        output = (exc.stdout or "") + ("\n" + exc.stderr if exc.stderr else "")
+        return False, f"curl timeout after 15m\n{output[-1800:]}"
 
 
 def download_hits(hits: list[StreamHit], output_dir: Path, mode: str) -> tuple[int, int, list[str]]:
