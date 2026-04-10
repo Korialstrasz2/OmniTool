@@ -145,14 +145,26 @@ https://example.com/page-two">{{ values.urls_text }}</textarea>
     <div class="form-grid">
       <label>
         Player page URL
+        <span class="field-help" tabindex="0" aria-label="About player page URL">
+          ⓘ
+          <span class="field-help-popup">The page where playback happens. Changing this points capture to a different player/session context.</span>
+        </span>
         <input type="text" name="passive_page_url" value="{{ values.passive_page_url }}" placeholder="https://example.com/watch">
       </label>
       <label>
         Output folder
+        <span class="field-help" tabindex="0" aria-label="About output folder">
+          ⓘ
+          <span class="field-help-popup">Download destination for final files. Use a dedicated folder per project to keep runs isolated and easier to review.</span>
+        </span>
         <input type="text" name="passive_output_dir" value="{{ values.passive_output_dir }}">
       </label>
       <label>
         Passive mode
+        <span class="field-help" tabindex="0" aria-label="About passive mode">
+          ⓘ
+          <span class="field-help-popup">Slow captures while you play media. Fast prioritizes immediate full fetches. Elusive sites adds multiple fallback download methods.</span>
+        </span>
         <select name="passive_mode">
           <option value="slow" {% if values.passive_mode == 'slow' %}selected{% endif %}>Slow (playback mirroring)</option>
           <option value="fast" {% if values.passive_mode == 'fast' %}selected{% endif %}>Fast (request full stream)</option>
@@ -161,17 +173,37 @@ https://example.com/page-two">{{ values.urls_text }}</textarea>
       </label>
       <label>
         Capture seconds
+        <span class="field-help" tabindex="0" aria-label="About capture seconds">
+          ⓘ
+          <span class="field-help-popup">Max time spent watching network traffic for stream URLs. Higher values increase discovery chance but take longer.</span>
+        </span>
         <input type="number" min="20" step="1" name="passive_capture_seconds" value="{{ values.passive_capture_seconds }}">
       </label>
       <label>
         Idle stop seconds
+        <span class="field-help" tabindex="0" aria-label="About idle stop seconds">
+          ⓘ
+          <span class="field-help-popup">Stop early if no new stream URLs are seen. Lower values end sooner; higher values wait longer for late manifest requests.</span>
+        </span>
         <input type="number" min="3" step="1" name="passive_idle_seconds" value="{{ values.passive_idle_seconds }}">
+      </label>
+      <label>
+        Parallel downloads
+        <span class="field-help" tabindex="0" aria-label="About parallel downloads">
+          ⓘ
+          <span class="field-help-popup">How many captured streams to download at once (1-12). Higher values can speed up runs but use more bandwidth/CPU.</span>
+        </span>
+        <input type="number" min="1" max="12" step="1" name="passive_parallel_downloads" value="{{ values.passive_parallel_downloads }}">
       </label>
     </div>
 
     <div class="form-grid">
       <label>
         Headless browser
+        <span class="field-help" tabindex="0" aria-label="About headless browser">
+          ⓘ
+          <span class="field-help-popup">Enabled runs without showing a browser window. Disable when you need to manually interact with the player UI.</span>
+        </span>
         <select name="passive_headless">
           <option value="1" {% if values.passive_headless %}selected{% endif %}>Enabled</option>
           <option value="" {% if not values.passive_headless %}selected{% endif %}>Disabled</option>
@@ -179,6 +211,10 @@ https://example.com/page-two">{{ values.urls_text }}</textarea>
       </label>
       <label>
         Auto-download captured streams
+        <span class="field-help" tabindex="0" aria-label="About auto download">
+          ⓘ
+          <span class="field-help-popup">Enabled starts downloads immediately after capture. Disable to only collect stream candidates first.</span>
+        </span>
         <select name="passive_auto_download">
           <option value="1" {% if values.passive_auto_download %}selected{% endif %}>Enabled</option>
           <option value="" {% if not values.passive_auto_download %}selected{% endif %}>Disabled</option>

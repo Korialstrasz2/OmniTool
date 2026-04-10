@@ -163,7 +163,12 @@ def _run_passive_capture_job(job_id: str) -> None:
 
         job['step'] = 'Downloading captured streams'
         job['progress'] = 70
-        success, failed, debug = passive_capture_module.download_hits(hits, output_dir, mode)
+        try:
+            parallel_downloads = int(cfg.get('parallel_downloads', 3))
+        except (TypeError, ValueError):
+            parallel_downloads = 3
+        parallel_downloads = max(1, min(parallel_downloads, 12))
+        success, failed, debug = passive_capture_module.download_hits(hits, output_dir, mode, parallel_downloads)
         job['result'] = {'success': success, 'failed': failed}
         for line in debug:
             _append_job_log(job, line)
@@ -383,6 +388,7 @@ def media_harvester():
         'passive_mode': str(defaults.get('passive_mode', 'slow')),
         'passive_capture_seconds': str(defaults.get('passive_capture_seconds', '90')),
         'passive_idle_seconds': str(defaults.get('passive_idle_seconds', '12')),
+        'passive_parallel_downloads': str(defaults.get('passive_parallel_downloads', '3')),
         'passive_headless': '1' if defaults.get('passive_headless', True) else '',
         'passive_auto_download': '1' if defaults.get('passive_auto_download', True) else '',
     }
@@ -398,6 +404,7 @@ def media_harvester():
                 'passive_mode': request.form.get('passive_mode', values['passive_mode']).strip() or 'slow',
                 'passive_capture_seconds': request.form.get('passive_capture_seconds', values['passive_capture_seconds']).strip() or '90',
                 'passive_idle_seconds': request.form.get('passive_idle_seconds', values['passive_idle_seconds']).strip() or '12',
+                'passive_parallel_downloads': request.form.get('passive_parallel_downloads', values['passive_parallel_downloads']).strip() or '3',
                 'passive_headless': '1' if request.form.get('passive_headless') else '',
                 'passive_auto_download': '1' if request.form.get('passive_auto_download') else '',
             })
@@ -407,12 +414,23 @@ def media_harvester():
             if not values['passive_page_url']:
                 flash('Please enter a player page URL for passive capture.', 'error')
                 return render_template('media_harvester.html', values=values, output=output)
+            try:
+                capture_seconds = max(20, int(values['passive_capture_seconds']))
+                idle_seconds = max(3, int(values['passive_idle_seconds']))
+                parallel_downloads = max(1, min(12, int(values['passive_parallel_downloads'])))
+            except ValueError:
+                flash('Passive capture seconds, idle seconds, and parallel downloads must be integers.', 'error')
+                return render_template('media_harvester.html', values=values, output=output)
+            values['passive_capture_seconds'] = str(capture_seconds)
+            values['passive_idle_seconds'] = str(idle_seconds)
+            values['passive_parallel_downloads'] = str(parallel_downloads)
             payload = {
                 'url': values['passive_page_url'],
                 'output_dir': values['passive_output_dir'],
                 'mode': values['passive_mode'],
-                'capture_seconds': int(values['passive_capture_seconds']),
-                'idle_seconds': int(values['passive_idle_seconds']),
+                'capture_seconds': capture_seconds,
+                'idle_seconds': idle_seconds,
+                'parallel_downloads': parallel_downloads,
                 'headless': bool(values['passive_headless']),
                 'auto_download': bool(values['passive_auto_download']),
             }
@@ -465,6 +483,7 @@ def media_harvester():
                 'passive_mode': values['passive_mode'],
                 'passive_capture_seconds': values['passive_capture_seconds'],
                 'passive_idle_seconds': values['passive_idle_seconds'],
+                'passive_parallel_downloads': values['passive_parallel_downloads'],
                 'passive_headless': bool(values['passive_headless']),
                 'passive_auto_download': bool(values['passive_auto_download']),
             }
@@ -575,6 +594,7 @@ def media_harvester_passive_start():
         'mode': request.form.get('passive_mode', 'slow').strip() or 'slow',
         'capture_seconds': request.form.get('passive_capture_seconds', '90').strip() or '90',
         'idle_seconds': request.form.get('passive_idle_seconds', '12').strip() or '12',
+        'parallel_downloads': request.form.get('passive_parallel_downloads', '3').strip() or '3',
         'headless': bool(request.form.get('passive_headless')),
         'auto_download': bool(request.form.get('passive_auto_download')),
     }
@@ -585,8 +605,9 @@ def media_harvester_passive_start():
     try:
         values['capture_seconds'] = max(20, int(str(values['capture_seconds'])))
         values['idle_seconds'] = max(3, int(str(values['idle_seconds'])))
+        values['parallel_downloads'] = max(1, min(12, int(str(values['parallel_downloads']))))
     except ValueError:
-        return jsonify({'ok': False, 'error': 'Capture/idle values must be valid integers.'}), 400
+        return jsonify({'ok': False, 'error': 'Capture, idle, and parallel download values must be valid integers.'}), 400
     job_id = _create_passive_job(values)
     threading.Thread(target=_run_passive_capture_job, args=(job_id,), daemon=True).start()
     return jsonify({'ok': True, 'job_id': job_id})
