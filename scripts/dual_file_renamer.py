@@ -22,8 +22,14 @@ THUMB_SIZE = 64 * 3
 def choose_directory(title: str) -> str:
     """Prompt the user to select a directory and return its path."""
     root = tk.Tk()
+    root.title("Dual File Renamer")
+    # Keep the picker on top so it does not end up hidden behind the launcher.
+    root.attributes("-topmost", True)
+    root.lift()
+    root.focus_force()
     root.withdraw()
-    folder = filedialog.askdirectory(title=title)
+    root.update_idletasks()
+    folder = filedialog.askdirectory(title=title, parent=root)
     root.destroy()
     return folder
 
