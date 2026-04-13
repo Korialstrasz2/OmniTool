@@ -4,6 +4,7 @@ import shlex
 import subprocess
 import sys
 import threading
+import time
 import uuid
 from pathlib import Path
 from datetime import datetime, timezone
@@ -17,6 +18,7 @@ app.config['SECRET_KEY'] = 'change-me'
 BASE_DIR = Path(__file__).parent
 TOOLS_FILE = BASE_DIR / 'tools.json'
 SCRIPTS_DIR = BASE_DIR / 'scripts'
+TOOL_LOG_DIR = SCRIPTS_DIR / 'tool_logs'
 HUNYUAN_DEFAULT_REPO = SCRIPTS_DIR / 'hunyuan3d-2.1'
 HUNYUAN_CONFIG = SCRIPTS_DIR / 'hunyuan3d_config.json'
 HUNYUAN_REPO_URL = 'https://github.com/tencent-hunyuan/hunyuan3d-2.1.git'
@@ -275,6 +277,9 @@ def resolve_tool_command(command: str) -> str:
     tokens = shlex.split(command, posix=os.name != 'nt')
     if not tokens:
         return command
+
+    if tokens[0].lower() in {'python', 'python3', 'py'}:
+        tokens[0] = sys.executable
 
     executable = tokens[0]
     executable_path = Path(executable)
@@ -636,8 +641,27 @@ def run_tool(tool_id):
         return redirect(url_for('index'))
     command = resolve_tool_command(tool['command'])
     try:
-        subprocess.Popen(command, shell=True, cwd=str(SCRIPTS_DIR))
-        flash(f"Started {tool['name']}", 'success')
+        TOOL_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        log_path = TOOL_LOG_DIR / f"{tool_id}.log"
+        with open(log_path, 'a', encoding='utf-8') as log_file:
+            log_file.write(f"\n[{datetime.now().isoformat()}] Launching: {command}\n")
+            process = subprocess.Popen(
+                command,
+                shell=True,
+                cwd=str(SCRIPTS_DIR),
+                stdout=log_file,
+                stderr=log_file,
+            )
+            time.sleep(0.5)
+            return_code = process.poll()
+        if return_code is None:
+            flash(f"Started {tool['name']}", 'success')
+        else:
+            flash(
+                f"{tool['name']} exited immediately (code {return_code}). "
+                f"See log: {log_path}",
+                'error',
+            )
     except Exception as exc:  # pragma: no cover
         flash(f"Error starting {tool['name']}: {exc}", 'error')
     return redirect(url_for('tool_detail', tool_id=tool_id))
