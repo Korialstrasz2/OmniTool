@@ -661,7 +661,7 @@ def run_yt_dlp_with_strategies(
         return False, "yt-dlp not installed"
 
     output_template = (
-        str(out_dir / "%(title).120s_%(id)s.mp3")
+        str(out_dir / "%(title).120s.mp3")
         if extract_audio_mp3
         else str(out_dir / "%(title).120s_%(id)s.%(ext)s")
     )
