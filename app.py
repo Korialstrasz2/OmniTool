@@ -70,6 +70,11 @@ def coerce_media_harvester_values(values):
     elif mode == 'download-all':
         values['include_page_with_ytdlp'] = '1'
         values['download_all_resolutions'] = '1'
+    elif mode == 'youtube-mp3':
+        values['include_page_with_ytdlp'] = '1'
+        values['download_all_resolutions'] = ''
+        values['all_page'] = ''
+        values['all_scroll'] = ''
 
     if site_mode == 'instagram-public':
         values['access_strategy'] = 'resilient'
@@ -463,6 +468,8 @@ def media_harvester():
             'site_mode': request.form.get('site_mode', values['site_mode']).strip() or 'general',
         })
 
+        if values['mode'] not in {'preview', 'download', 'download-all', 'youtube-mp3'}:
+            values['mode'] = 'preview'
         if values['access_strategy'] not in {'standard', 'resilient'}:
             values['access_strategy'] = 'standard'
         if values['site_mode'] not in {'general', 'instagram-public', 'all-media-html-sources'}:
@@ -525,6 +532,8 @@ def media_harvester():
                     command.append('--include-page-with-ytdlp')
                 if values['mode'] == 'download-all':
                     command.extend(['--include-page-with-ytdlp', '--download-all-resolutions'])
+                if values['mode'] == 'youtube-mp3':
+                    command.extend(['--extract-audio-mp3', '--include-page-with-ytdlp'])
                 if values['diagnostics']:
                     command.append('--diagnostics')
                 if values['download_all_resolutions'] and '--download-all-resolutions' not in command:
