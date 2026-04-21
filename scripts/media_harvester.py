@@ -646,7 +646,6 @@ def run_yt_dlp_with_strategies(
     proxy: str | None,
     access_strategy: str,
     site_mode: str,
-    extract_audio_mp3: bool = False,
     impersonation_targets: list[str] | None = None,
     allow_auto_install: bool = True,
 ) -> tuple[bool, str]:
@@ -660,11 +659,7 @@ def run_yt_dlp_with_strategies(
     if not cmd_prefix:
         return False, "yt-dlp not installed"
 
-    output_template = (
-        str(out_dir / "%(title).120s_%(id)s.mp3")
-        if extract_audio_mp3
-        else str(out_dir / "%(title).120s_%(id)s.%(ext)s")
-    )
+    output_template = str(out_dir / "%(title).120s_%(id)s.%(ext)s")
     base_cmd = cmd_prefix + [
         "--no-overwrites",
         "--no-playlist",
@@ -680,8 +675,6 @@ def run_yt_dlp_with_strategies(
         base_cmd.extend(["--merge-output-format", "mp4"])
     if proxy:
         base_cmd.extend(["--proxy", proxy])
-    if extract_audio_mp3:
-        base_cmd.extend(["--extract-audio", "--audio-format", "mp3", "--audio-quality", "0"])
     if site_mode == "instagram-public":
         base_cmd.extend(
             [
@@ -755,7 +748,6 @@ def run_yt_dlp_with_strategies(
                 proxy,
                 "resilient",
                 site_mode,
-                extract_audio_mp3=extract_audio_mp3,
                 impersonation_targets=refreshed_targets,
                 allow_auto_install=False,
             )
@@ -962,7 +954,6 @@ def main() -> int:
         help="Authorized access strategy for yt-dlp (resilient adds retries and browser impersonation).",
     )
     parser.add_argument("--save-defaults", action="store_true", help="Save current options as defaults")
-    parser.add_argument("--extract-audio-mp3", action="store_true", help="Use yt-dlp to convert target URL media to MP3")
     args = parser.parse_args()
 
     if args.save_defaults:
@@ -1040,29 +1031,6 @@ def main() -> int:
 
     out_dir = Path(args.output).expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
-
-    if args.extract_audio_mp3:
-        ok, msg = run_yt_dlp_with_strategies(
-            args.url,
-            out_dir,
-            max(args.timeout * 2, 90),
-            args.proxy,
-            args.access_strategy,
-            args.site_mode,
-            extract_audio_mp3=True,
-        )
-        print("\n=== Summary ===")
-        print(f"Output folder : {out_dir}")
-        print(f"Successful    : {1 if ok else 0}")
-        print(f"Failed        : {0 if ok else 1}")
-        if ok:
-            print(f"[OK] page-url -> {msg}")
-            return 0
-        print(f"[FAIL] page-url -> {msg}")
-        tip = suggest_authorized_next_steps(msg)
-        if tip:
-            print(tip)
-        return 2
 
     include_all_html_media = args.site_mode == "all-media-html-sources"
     session = build_session(proxy=args.proxy, timeout=args.timeout, site_mode=args.site_mode)
