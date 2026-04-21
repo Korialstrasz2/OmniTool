@@ -56,6 +56,7 @@ https://example.com/page-two">{{ values.urls_text }}</textarea>
           <option value="preview" {% if values.mode == 'preview' %}selected{% endif %}>Preview only</option>
           <option value="download" {% if values.mode == 'download' %}selected{% endif %}>Standard download</option>
           <option value="download-all" {% if values.mode == 'download-all' %}selected{% endif %}>Download all available resolutions</option>
+          <option value="youtube-mp3" {% if values.mode == 'youtube-mp3' %}selected{% endif %}>YouTube to MP3</option>
         </select>
       </label>
       <label>
@@ -283,6 +284,10 @@ https://example.com/page-two">{{ values.urls_text }}</textarea>
           setSelectState(includePageEl, { disabled: false });
         }
         setSelectState(allResEl, { disabled: true, forcedValue: '' });
+      } else if (mode === 'youtube-mp3') {
+        setSelectState(includePageEl, { disabled: true, forcedValue: '1' });
+        setSelectState(allResEl, { disabled: true, forcedValue: '' });
+        setSelectState(allPageEl, { disabled: true, forcedValue: '' });
       } else {
         setSelectState(includePageEl, { disabled: true, forcedValue: '1' });
         setSelectState(allResEl, { disabled: true, forcedValue: '1' });
