@@ -25,7 +25,7 @@ jobs:
       - name: Verify HTTP and audio test dependencies
         run: python -c "import flask, mutagen, requests, cryptography, pymupdf"
       - name: Run complete Python regression suite with hang diagnostics
-        run: python -u -c "import faulthandler, pytest; faulthandler.dump_traceback_later(120, exit=True); raise SystemExit(pytest.main(['-vv', 'tests']))"
+        run: python -u tests/run_ci.py
       - name: Compile Python
         run: python -m compileall -q omnitool_core app.py
       - name: Validate JavaScript syntax and behavior
