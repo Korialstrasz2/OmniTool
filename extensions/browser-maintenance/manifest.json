@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "OmniTool Browser Maintenance",
+  "version": "1.0.0",
+  "description": "Preview, encrypted backup, and explicit cleanup using native browser APIs. No network transport.",
+  "minimum_chrome_version": "130",
+  "permissions": ["storage"],
+  "optional_permissions": ["history", "cookies"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "action": {"default_popup": "launcher.html", "default_title": "OmniTool Browser Maintenance"},
+  "options_ui": {"page": "workspace.html", "open_in_tab": true},
+  "content_security_policy": {"extension_pages": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'none'; img-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"}
+}

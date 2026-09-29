@@ -55,7 +55,9 @@ def validate(spec: dict[str, Any]) -> dict[str, Any]:
         if entry.suffix != ".py":
             raise ValueError("Entrypoint must be a Python file")
     else:
-        if result.get("page") not in {"/csv-editor", "/lyrics-embedder", "/media-harvester"}:
+        if result.get("page") not in {"/csv-editor", "/lyrics-embedder", "/media-harvester",
+                                      "/maintenance/browser/history", "/maintenance/browser/cookies",
+                                      "/maintenance/lowercase"}:
             raise ValueError("Unregistered tool page")
     if not isinstance(result["parameters"], list) or len(result["parameters"]) > 32:
         raise ValueError("Invalid parameter list")
@@ -166,6 +168,8 @@ class Catalog:
     def availability(tool: dict) -> str:
         if tool.get("disabled"):
             return "disabled"
+        if tool.get("setup") == "browser-extension":
+            return "needs-setup"
         if tool.get("platforms") and sys.platform not in tool["platforms"]:
             return "unsupported-platform"
         for module in tool.get("requires", []):
