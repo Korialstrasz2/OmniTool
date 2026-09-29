@@ -5,6 +5,7 @@ if errorlevel 1 goto failed
 set "PYTHONNOUSERSITE=1"
 set "PIP_USER=0"
 set "PYTHONUTF8=1"
+set "PYTHONDONTWRITEBYTECODE=1"
 set "PYTHON_EXE=%~dp0.venv\Scripts\python.exe"
 if exist "%PYTHON_EXE%" goto environment_ready
 if /i "%~1"=="--diagnose" goto no_environment

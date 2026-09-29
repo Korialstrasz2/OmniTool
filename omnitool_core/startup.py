@@ -5,6 +5,7 @@ import argparse
 import errno
 import http.client
 import os
+import socket
 import threading
 import time
 import webbrowser
@@ -51,6 +52,21 @@ def open_when_ready(port: int, stopped: threading.Event, opener=None, timeout: f
     return False
 
 
+def bound_listener(port: int) -> socket.socket:
+    """Own the loopback port exclusively on Windows, before handing it to Waitress."""
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        if os.name == 'nt':
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        else:
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        listener.bind(('127.0.0.1', port))
+        return listener
+    except BaseException:
+        listener.close()
+        raise
+
+
 def serve_local(application, *, port: int = 5000, open_browser: bool = False, server_factory=None):
     """Bind first, then start a readiness probe. Port zero is for internal tests only."""
     if type(port) is not int or not 0 <= port <= 65535:
@@ -61,10 +77,12 @@ def serve_local(application, *, port: int = 5000, open_browser: bool = False, se
     stopped = threading.Event()
     browser_thread = None
     server = None
+    listener = None
     socket_map = {}
     try:
         try:
-            server = server_factory(application, host='127.0.0.1', port=port, threads=6,
+            listener = bound_listener(port)
+            server = server_factory(application, sockets=[listener], threads=6,
                                     max_request_body_size=64 * 1024, map=socket_map)
         except OSError as exc:
             if exc.errno in {errno.EADDRINUSE, errno.EACCES} or getattr(exc, 'winerror', None) in {10048, 10013}:
@@ -90,6 +108,8 @@ def serve_local(application, *, port: int = 5000, open_browser: bool = False, se
         # This map belongs solely to this startup; never close unrelated sockets.
         for channel in list(socket_map.values()):
             channel.close()
+        if listener is not None:
+            listener.close()
         if browser_thread is not None:
             browser_thread.join(timeout=1)
 

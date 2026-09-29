@@ -12,7 +12,6 @@ import sys
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parents[1]
-CORE_MODULES = ('flask', 'cryptography', 'waitress')
 
 
 def version_tuple(value: str) -> tuple[int, ...]:
@@ -58,7 +57,7 @@ def core_problems() -> list[str]:
     problems = interpreter_problems() + requirement_problems(BASE / 'requirements-core.txt')
     if not problems:
         try:
-            result = subprocess.run([sys.executable, '-c', 'import flask, cryptography, waitress'],
+            result = subprocess.run([sys.executable, '-B', '-c', 'import flask, cryptography, waitress'],
                                     capture_output=True, timeout=20, check=False)
             if result.returncode:
                 problems.append('Core package import failed. Repair this virtual environment with requirements-core.txt.')

@@ -1,5 +1,6 @@
 import errno
 import json
+import socket
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
@@ -45,7 +46,7 @@ def test_port_conflict_does_not_open_browser_or_kill_process(monkeypatch):
     monkeypatch.setattr(startup, 'open_when_ready', lambda *_: pytest.fail('opened'))
     def conflict(*args, **kwargs): raise OSError(errno.EADDRINUSE, 'fixture')
     with pytest.raises(startup.StartupError, match='occupied'):
-        startup.serve_local(app, open_browser=True, server_factory=conflict)
+        startup.serve_local(app, port=0, open_browser=True, server_factory=conflict)
 
 
 def test_startup_closes_server_and_workers_on_exit(monkeypatch):
@@ -54,10 +55,12 @@ def test_startup_closes_server_and_workers_on_exit(monkeypatch):
                              close=lambda: calls.append('close'),
                              task_dispatcher=SimpleNamespace(shutdown=lambda: calls.append('dispatcher')))
     def factory(app, **kwargs):
-        assert kwargs['host'] == '127.0.0.1' and kwargs['max_request_body_size'] == 65536
+        assert kwargs['sockets'][0].getsockname()[0] == '127.0.0.1'
+        assert not {'host', 'port'} & kwargs.keys()
+        assert kwargs['max_request_body_size'] == 65536
         calls.append('bind'); return server
     app = SimpleNamespace(extensions={'omnitool_access_token': 'test-code'})
-    startup.serve_local(app, server_factory=factory)
+    startup.serve_local(app, port=0, server_factory=factory)
     assert calls == ['bind', 'run', 'close', 'dispatcher']
 
 
@@ -84,3 +87,23 @@ def test_bootstrap_accepts_matching_release(tmp_path, monkeypatch):
 def test_bootstrap_does_not_silently_ignore_new_requirement_syntax(tmp_path):
     path = tmp_path / 'requirements.txt'; path.write_text('-r other.txt\n')
     assert 'Cannot validate' in bootstrap.requirement_problems(path)[0]
+
+
+def test_listener_is_bound_only_to_loopback():
+    listener = startup.bound_listener(0)
+    try:
+        assert listener.getsockname()[0] == '127.0.0.1'
+        assert listener.getsockname()[1] > 0
+    finally:
+        listener.close()
+
+
+def test_factory_failure_releases_owned_listener(monkeypatch):
+    sockets = []
+    app = SimpleNamespace(extensions={'omnitool_access_token': 'test-code'})
+    def fail(*args, **kwargs):
+        sockets.extend(kwargs['sockets'])
+        raise OSError(errno.EADDRINUSE, 'fixture')
+    with pytest.raises(startup.StartupError):
+        startup.serve_local(app, port=0, server_factory=fail)
+    assert sockets[0].fileno() == -1

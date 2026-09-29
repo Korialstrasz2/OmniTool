@@ -6,7 +6,7 @@ Windows is the primary target. Use **64-bit Python 3.11 or newer**; Python 3.13 
 
 Double-click `start.bat`. Missing or incompatible core packages are installed/repaired using `requirements-core.txt`. Unlike the previous import-only check, installed package versions must satisfy the declared minimum and maximum. Optional tools are not installed automatically. An invalid Python environment or a failed install leaves an explanatory console message visible rather than closing the window immediately.
 
-The local server binds only to `127.0.0.1`. The browser opens **after `/login` answers successfully**, not before the server starts. Enter the access code printed in the terminal; the code is not put into a URL, file, or clipboard. Authentication, CSRF/origin checks, and vault passphrases are unchanged.
+The local server binds only to `127.0.0.1`, using an exclusive Windows socket before handing it to Waitress. It does not enable Windows port sharing. The browser opens **after `/login` answers successfully**, not before the server starts. Enter the access code printed in the terminal; the code is not put into a URL, file, or clipboard. Authentication, CSRF/origin checks, and vault passphrases are unchanged.
 
 Run these commands from a terminal in the project directory:
 
@@ -69,6 +69,12 @@ node --test tests\csv_workbench.test.js tests\browser_maintenance.test.js
 
 The full workflow runs on Windows and Linux with Python 3.11 and 3.13, and now runs on merges to main as well as pull requests. Browser checks run on **Windows as well as Linux**. Superseded runs of this workflow on the same ref are canceled to avoid accumulated stale checks.
 
-Native Windows launcher tests use an isolated copy of the checkout under a path with spaces, parentheses, accents, and CJK characters and a disposable virtual environment. They exercise `cmd.exe`, read-only diagnostics, the actual Waitress login endpoint, denial of unauthenticated API access, and an occupied port. The test virtual environment inherits CI's already installed packages; these tests do not verify a first-time installation from PyPI or test an actual Explorer double-click. Test process cleanup targets only the subprocess tree created by the fixture.
+Native Windows launcher tests use an isolated copy of the checkout under a path with spaces, parentheses, accents, and CJK characters and a disposable virtual environment. They exercise `cmd.exe`, read-only diagnostics, the actual Waitress login endpoint, denial of unauthenticated API access, an occupied port, and rejection of a second socket attempting to reuse the workspace port. The test virtual environment inherits CI's already installed packages; these tests do not verify a first-time installation from PyPI or test an actual Explorer double-click. Test process cleanup targets only the subprocess tree created by the fixture.
 
 Browser smoke exercises the real CSV worker and rendered templates; Prompt/Lyrics API responses are mocked. No real browser profile, music library, model, public provider, or private source is used. Tests are not a security audit or a guarantee that arbitrary legacy download tools and external providers work. Read the latest PR checks for actual results rather than assuming a workflow definition means a passing run.
+
+
+Socket binding follows Microsoft Winsock guidance for `SO_EXCLUSIVEADDRUSE` and Waitress's documented pre-bound `sockets` interface. A recently closed connection can temporarily keep the port unavailable; select a different explicit port rather than terminating unrelated processes.
+
+- https://learn.microsoft.com/en-us/windows/win32/winsock/using-so-reuseaddr-and-so-exclusiveaddruse
+- https://docs.pylonsproject.org/projects/waitress/en/stable/arguments.html

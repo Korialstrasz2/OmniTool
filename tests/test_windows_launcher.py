@@ -77,3 +77,31 @@ def test_native_occupied_port_is_not_taken_over(checkout):
         assert b'occupied or unavailable' in result.stdout
         assert listener.fileno() != -1
     finally: listener.close()
+
+
+def test_windows_listener_stays_exclusive_after_waitress_wrap():
+    from waitress import create_server
+    from omnitool_core.startup import bound_listener
+    listener = bound_listener(0)
+    server = None
+    sockets = {}
+    def application(environ, start_response):
+        start_response('200 OK', [('Content-Type', 'text/plain')])
+        return [b'test']
+    try:
+        server = create_server(application, sockets=[listener], map=sockets)
+        assert listener.getsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE) == 1
+        contender = socket.socket()
+        try:
+            contender.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            with pytest.raises(OSError):
+                contender.bind(listener.getsockname())
+        finally:
+            contender.close()
+    finally:
+        if server is not None:
+            server.close()
+            server.task_dispatcher.shutdown()
+        for channel in list(sockets.values()):
+            channel.close()
+        listener.close()
