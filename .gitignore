@@ -24,3 +24,5 @@ scripts/cookies_whitelist.txt
 vaults/*
 !vaults/*.otvault
 !vaults/README.md
+# Browser backups may contain session cookies; keep them outside version control.
+*.otbrowser
