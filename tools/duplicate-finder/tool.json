@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "duplicate-finder",
+  "name": "Duplicate Finder",
+  "description": "Find matching file contents using size grouping and SHA-256. Read-only: no files are deleted or renamed.",
+  "folder": "Files / Inspect",
+  "tags": ["duplicates", "hash", "sha256", "read-only"],
+  "kind": "python",
+  "entrypoint": "main.py",
+  "parameters": [
+    {"name": "root", "label": "Folder to scan", "type": "path", "required": true},
+    {"name": "min-size", "label": "Minimum file size (bytes)", "type": "integer", "flag": "--min-size", "default": 1, "min": 0},
+    {"name": "max-files", "label": "Maximum files", "type": "integer", "flag": "--max-files", "default": 100000, "min": 1, "max": 1000000}
+  ]
+}

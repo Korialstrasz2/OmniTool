@@ -1,68 +1,13 @@
 [
-  {
-    "id": "browser-history-cleaner",
-    "name": "Browser History Cleaner",
-    "description": "Remove history entries for a domain from a selected browser",
-    "command": "python browser_history_cleaner.py"
-  },
-  {
-    "id": "cookie-cleaner",
-    "name": "Cookie Cleaner",
-    "description": "Delete unwanted cookies using a whitelist approach",
-    "command": "python cookie_cleaner.py"
-  },
-  {
-    "id": "lowercase-renamer",
-    "name": "Lowercase Renamer",
-    "description": "Rename all files in a folder to lowercase",
-    "command": "python lowercase_renamer.py"
-  },
-  {
-    "id": "dual-file-renamer",
-    "name": "Dual File Renamer",
-    "description": "Match file names between two folders while keeping extensions",
-    "command": "python dual_file_renamer.py"
-  },
-  {
-    "id": "folder-compare",
-    "name": "Folder Compare",
-    "description": "List file name differences between two folders",
-    "command": "python folder_compare.py"
-  },
-  {
-    "id": "b64pdf2png",
-    "name": "Base64 PDF to PNG",
-    "description": "Decode a Base64 PDF/image and export PNG(s)",
-    "command": "python b64pdf2png.py"
-  },
-  {
-    "id": "comfy-prompt-builder",
-    "name": "Comfy Prompt Builder",
-    "description": "Generate ComfyUI prompts using KoboldCpp or local GGUF models",
-    "command": "python comfy_prompt_builder/start.py"
-  },
-  {
-    "id": "hunyuan3d-manager",
-    "name": "Hunyuan3D 2.1 Manager",
-    "description": "Clone, update, and run the Tencent Hunyuan3D 2.1 toolkit with a rich command builder",
-    "command": ""
-  },
-  {
-    "id": "lyrics-embedder-manager",
-    "name": "Lyrics Embedder Manager",
-    "description": "Embed lyrics into audio tags with provider fallbacks and optional AI metadata recovery.",
-    "command": ""
-  },
-  {
-    "id": "csv-editor",
-    "name": "CSV Editor",
-    "description": "Import CSV files with delimiter detection and export with custom formatting options.",
-    "command": ""
-  },
-  {
-    "id": "media-harvester-manager",
-    "name": "Media Harvester",
-    "description": "Preview and download page media with fallback strategies (direct, yt-dlp, HLS).",
-    "command": ""
-  }
+  {"schema_version":1,"id":"browser-history-cleaner","name":"Browser History Cleaner","description":"Remove history for a selected domain. Disabled until database safety is rebuilt.","folder":"Browser / Maintenance","kind":"python","disabled":true,"platforms":["win32"],"risk":"writes-files","review_note":"Review required: substring URL matching, live-database copy-back, and forced Edge termination. Use browser-native history controls in the meantime.","entrypoint":"scripts/browser_history_cleaner.py","working_directory":"scripts"},
+  {"schema_version":1,"id":"cookie-cleaner","name":"Cookie Cleaner","description":"Allowlist-based cookie cleanup. Disabled pending domain and database-safety fixes.","folder":"Browser / Maintenance","kind":"python","disabled":true,"platforms":["win32"],"risk":"writes-files","review_note":"Review required: naive last-two-label domain matching is incorrect for domains such as example.co.uk. Database backups and browser-closed checks are also required.","entrypoint":"scripts/cookie_cleaner.py","working_directory":"scripts"},
+  {"schema_version":1,"id":"lowercase-renamer","name":"Lowercase Renamer","description":"Recursive lowercase renaming. Disabled until collision-safe planning and rollback are implemented.","folder":"Files / Rename","kind":"python","disabled":true,"risk":"writes-files","review_note":"The existing script directly calls os.rename without collision protection. Preserve the script for refactoring; do not run it against valuable files.","entrypoint":"scripts/lowercase_renamer.py","working_directory":"scripts"},
+  {"schema_version":1,"id":"dual-file-renamer","name":"Dual File Renamer","description":"Match filenames across two folders using the existing desktop thumbnail interface.","folder":"Files / Rename","kind":"python","requires":["PIL","tkinter"],"risk":"writes-files","review_note":"Retained desktop tool. Selection currently triggers a rename; preview/confirm and undo are still needed.","entrypoint":"scripts/dual_file_renamer.py","working_directory":"scripts"},
+  {"schema_version":1,"id":"folder-compare","name":"Folder Compare","description":"Compare filename stems across two folders in a desktop dialog; this is not a content comparison.","folder":"Files / Inspect","kind":"python","requires":["tkinter"],"review_note":"Non-recursive and extension-insensitive. Use Duplicate Finder for a content-based duplicate scan.","entrypoint":"scripts/folder_compare.py","working_directory":"scripts"},
+  {"schema_version":1,"id":"b64pdf2png","name":"Base64 / PDF to PNG","description":"Convert an image, PDF, or Base64 input to PNG with explicit input and output parameters.","folder":"Data / Conversion","kind":"python","requires":["PIL","fitz"],"risk":"writes-files","parameters":[{"name":"input","label":"Input file","type":"path","required":true},{"name":"out","label":"Output directory","type":"path","required":true,"flag":"--out"},{"name":"dpi","label":"Render resolution (DPI)","type":"integer","default":220,"min":36,"max":600,"flag":"--dpi"},{"name":"max-pages","label":"Maximum PDF pages","type":"integer","default":100,"min":1,"max":1000,"flag":"--max-pages"}],"review_note":"The launcher now supplies the required input argument. Output filenames may overwrite existing PNGs; choose a new output directory.","entrypoint":"scripts/b64pdf2png.py","working_directory":"scripts"},
+  {"schema_version":1,"id":"comfy-prompt-builder","name":"Prompt Creator","description":"Launch the existing KoboldCpp-connected prompt editor in its own local web interface.","folder":"AI / Prompts","kind":"python","requires":["fastapi","uvicorn","requests"],"review_note":"Retained external service. It currently targets KoboldCpp, not a general GGUF runtime. CORS and endpoint configuration require a separate review.","entrypoint":"scripts/comfy_prompt_builder/start.py","working_directory":"scripts"},
+  {"schema_version":1,"id":"lyrics-embedder-manager","name":"Lyrics Embedder","description":"Fetch provider lyrics and embed audio tags. Optional paid AI recovery is off by default.","folder":"Media / Metadata","kind":"python","requires":["mutagen","requests"],"risk":"writes-files","parameters":[{"name":"root","label":"Music folder","type":"path","required":true},{"name":"workers","label":"Workers","type":"integer","default":4,"min":1,"max":32,"flag":"--workers"},{"name":"min-delay","label":"Minimum provider delay (seconds)","type":"text","default":"0.5","flag":"--min-delay"},{"name":"timeout","label":"Request timeout (seconds)","type":"text","default":"20","flag":"--timeout"},{"name":"retries","label":"Retries","type":"integer","default":2,"min":0,"max":10,"flag":"--retries"},{"name":"max-files","label":"Maximum files (0 = all)","type":"integer","default":0,"min":0,"flag":"--max-files"},{"name":"force","label":"Replace existing lyrics","type":"boolean","default":false,"flag":"--force"},{"name":"keep-synced","label":"Keep synchronized lyrics","type":"boolean","default":false,"flag":"--keep-synced"},{"name":"ai-if-failed","label":"Allow paid AI metadata recovery","type":"boolean","default":false,"flag":"--ai-if-failed"},{"name":"ai-model","label":"AI model ID (only when enabled)","type":"text","flag":"--ai-model"},{"name":"ai-rounds","label":"Ai Rounds","type":"integer","default":2,"min":1,"max":5,"flag":"--ai-rounds"},{"name":"exts","label":"Audio extensions","type":"text","default":".mp3,.flac,.m4a,.mp4,.aac,.ogg,.opus","flag":"--exts"},{"name":"log-level","label":"Log Level","type":"choice","choices":["INFO","WARNING","ERROR","DEBUG"],"default":"INFO","flag":"--log-level"}],"review_note":"Existing provider logic is retained. Provider health, tag backups, and rate limits still need integration testing. Advanced flags remain available in the script CLI.","entrypoint":"scripts/lyrics_embedder.py","working_directory":"scripts"},
+  {"schema_version":1,"id":"csv-editor","name":"CSV Workbench","description":"Preview and convert CSV locally, including quoted multiline fields and escaped quotes.","folder":"Data / Conversion","kind":"page","page":"/csv-editor","tags":["csv","delimiter","tab","local"]},
+  {"schema_version":1,"id":"media-harvester-manager","name":"Media Harvester","description":"Preview or download media you are authorized to access, with structured controls and tracked jobs.","folder":"Media / Downloads","kind":"python","requires":["requests"],"risk":"writes-files","parameters":[{"name":"url","label":"Media page URL","type":"text","required":true},{"name":"output","label":"Output directory","type":"path","required":true,"flag":"--output"},{"name":"preview-only","label":"Preview only (recommended)","type":"boolean","default":true,"flag":"--preview-only"},{"name":"workers","label":"Workers","type":"integer","default":4,"min":1,"max":16,"flag":"--workers"},{"name":"timeout","label":"Network timeout (seconds)","type":"text","default":"45","flag":"--timeout"},{"name":"include-page-with-ytdlp","label":"Include page with yt-dlp","type":"boolean","default":false,"flag":"--include-page-with-ytdlp"},{"name":"download-all-resolutions","label":"Download all resolutions","type":"boolean","default":false,"flag":"--download-all-resolutions"},{"name":"extract-audio-mp3","label":"Extract MP3 audio","type":"boolean","default":false,"flag":"--extract-audio-mp3"},{"name":"all-page","label":"Inspect all page sources","type":"boolean","default":false,"flag":"--all-page"},{"name":"all-scroll","label":"Scroll page with Playwright","type":"boolean","default":false,"flag":"--all-scroll"},{"name":"access-strategy","label":"Access Strategy","type":"choice","choices":["standard","resilient"],"default":"standard","flag":"--access-strategy"},{"name":"site-mode","label":"Site Mode","type":"choice","choices":["general","instagram-public","all-media-html-sources"],"default":"general","flag":"--site-mode"},{"name":"proxy","label":"Optional proxy URL","type":"text","flag":"--proxy"},{"name":"diagnostics","label":"Verbose diagnostics may contain URLs","type":"boolean","default":false,"flag":"--diagnostics"}],"review_note":"Preview is the default. Install optional yt-dlp/Playwright and system ffmpeg separately as needed. No automatic dependency installation occurs at launch.","entrypoint":"scripts/media_harvester.py","working_directory":"scripts"},
+  {"schema_version":1,"id":"media-passive-capture","name":"Passive Media Capture","description":"Run the existing passive capture script as a tracked job. Capture only content you are authorized to use.","folder":"Media / Downloads","kind":"python","requires":["requests","playwright"],"risk":"writes-files","parameters":[{"name":"url","label":"Authorized player page URL","type":"text","required":true,"flag":"--url"},{"name":"output","label":"Output directory","type":"path","required":true,"flag":"--output"},{"name":"mode","label":"Mode","type":"choice","choices":["slow","fast","elusive-sites"],"default":"slow","flag":"--mode"},{"name":"capture-seconds","label":"Capture Seconds","type":"integer","default":90,"min":20,"max":600,"flag":"--capture-seconds"},{"name":"idle-seconds","label":"Idle Seconds","type":"integer","default":12,"min":3,"max":120,"flag":"--idle-seconds"},{"name":"parallel-downloads","label":"Parallel Downloads","type":"integer","default":3,"min":1,"max":12,"flag":"--parallel-downloads"},{"name":"headless","label":"Run browser headless","type":"boolean","default":true,"flag":"--headless"},{"name":"auto-download","label":"Download captured streams","type":"boolean","default":false,"flag":"--auto-download"}],"review_note":"Promoted from a hidden supporting script to a catalog entry. Browser binaries and download backends require local setup.","entrypoint":"scripts/media_passive_capture.py","working_directory":"scripts"}
 ]

@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="login-card">
+  <span class="eyebrow">OMNITOOL / LOCAL ACCESS</span>
+  <h1>Your tools.<br>Your workspace.</h1>
+  <p>Enter the access code printed in the terminal that started OmniTool. This is separate from your encrypted-bundle passphrase.</p>
+  {% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>Local access code<input name="access_token" type="password" required autofocus autocomplete="current-password"></label>
+    <button type="submit">Open workspace</button>
+  </form>
+  <small>Access is restricted to this computer. Do not expose this service through a tunnel or reverse proxy.</small>
+</section>
+{% endblock %}

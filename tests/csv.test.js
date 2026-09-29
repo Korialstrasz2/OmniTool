@@ -1,0 +1,16 @@
+'use strict';
+const assert = require('node:assert/strict');
+const csv = require('../static/csv.js');
+assert.deepEqual(csv.parse('a,b\r\n"x\ny","say ""yes"""\r\n'), [['a','b'],['x\ny','say "yes"']]);
+assert.deepEqual(csv.parse('\ufeffa\tb\n1\t2', '\t'), [['a','b'],['1','2']]);
+assert.deepEqual(csv.parse('a,b,\n\n'), [['a','b',''],['']]);
+assert.deepEqual(csv.parse(''), []);
+assert.throws(() => csv.parse('"unclosed'));
+assert.throws(() => csv.parse('"ok"bad'));
+assert.throws(() => csv.parse('bad"quote'));
+assert.equal(csv.detect('a;b\n"x;y";z'), ';');
+const rows = [['plain','comma,','line\nbreak','"quote"'],['-12','=A1','@value','']];
+assert.deepEqual(csv.parse(csv.stringify(rows, ',', '"', false)), rows);
+assert.ok(csv.stringify([['=1+1','-2']]).includes("'=1+1"));
+assert.throws(() => csv.stringify([['a,b']], ',', '', false));
+console.log('11 CSV assertions passed');

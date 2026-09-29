@@ -1,49 +1,25 @@
 @echo off
 setlocal
-
-rem Ensure Python ignores user site-packages so installations stay isolated to the
-rem virtual environment and avoid permission issues with global packages.
-set PYTHONNOUSERSITE=1
-
-set "SCRIPT_DIR=%~dp0"
-cd /d "%SCRIPT_DIR%"
-set "VENV_DIR=%SCRIPT_DIR%.venv"
-set "PYTHON_EXE=%VENV_DIR%\Scripts\python.exe"
-
-rem Ensure installations always happen inside the virtual environment.
+cd /d "%~dp0"
 set "PYTHONNOUSERSITE=1"
 set "PIP_USER=0"
-
+set "PYTHON_EXE=%~dp0.venv\Scripts\python.exe"
+if not exist "%PYTHON_EXE%" py -3 -m venv .venv
+if not exist "%PYTHON_EXE%" python -m venv .venv
 if not exist "%PYTHON_EXE%" (
-    echo Creating virtual environment...
-    py -3 -m venv "%VENV_DIR%" >nul 2>&1
+  echo Unable to create a virtual environment. Install Python 3.11 or newer.
+  pause
+  exit /b 1
 )
-
-if not exist "%PYTHON_EXE%" (
-    python -m venv "%VENV_DIR%"
-)
-
-if not exist "%PYTHON_EXE%" (
-    echo Failed to create virtual environment. Ensure that Python 3 is installed and available in PATH.
-    exit /b 1
-)
-
-echo Updating pip...
-"%PYTHON_EXE%" -m pip install --upgrade pip
+"%PYTHON_EXE%" -c "import sys; assert sys.version_info >= (3,11), 'Python 3.11 or newer is required'"
+if errorlevel 1 exit /b 1
+"%PYTHON_EXE%" -c "import flask, cryptography, waitress" >nul 2>&1
 if errorlevel 1 (
-    echo Failed to update pip. See the messages above for details.
-    exit /b 1
+  "%PYTHON_EXE%" -m pip install -r requirements-core.txt
+  if errorlevel 1 exit /b 1
 )
-
-echo Installing dependencies...
-"%PYTHON_EXE%" -m pip install -r requirements.txt
-if errorlevel 1 (
-    echo Failed to install dependencies. See the messages above for details.
-    exit /b 1
-)
-
-start "OmniTool" "%PYTHON_EXE%" app.py
-timeout /t 3 > nul
-start "" http://localhost:5000
-
+echo Starting OmniTool. Use the local access code shown below.
+echo Optional tool dependencies are in requirements.txt; they are not installed automatically.
+start "" http://127.0.0.1:5000
+"%PYTHON_EXE%" app.py
 endlocal
