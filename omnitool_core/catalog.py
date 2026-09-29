@@ -57,7 +57,7 @@ def validate(spec: dict[str, Any]) -> dict[str, Any]:
     else:
         if result.get("page") not in {"/csv-editor", "/lyrics-embedder", "/media-harvester",
                                       "/maintenance/browser/history", "/maintenance/browser/cookies",
-                                      "/maintenance/lowercase"}:
+                                      "/maintenance/lowercase", "/files/dual", "/files/compare", "/files/convert"}:
             raise ValueError("Unregistered tool page")
     if not isinstance(result["parameters"], list) or len(result["parameters"]) > 32:
         raise ValueError("Invalid parameter list")

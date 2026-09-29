@@ -1,0 +1,4 @@
+# Optional PNG conversion and still-image thumbnail support.
+# Explicit installation only; the workspace core does not auto-install these.
+Pillow>=12.1,<13
+PyMuPDF>=1.26.7,<2
