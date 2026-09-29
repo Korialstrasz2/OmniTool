@@ -151,7 +151,9 @@ def convert(path: Path, out: Path, dpi: int = 220, max_pages: int = 100,
         report = dict(info, output=str(out), completed=True)
         (stage / 'conversion.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
         for file in stage.iterdir():
-            with file.open('rb') as stream:
+            # Windows flushing requires a writable handle. Only our staged outputs
+            # are reopened; r+b neither truncates nor touches the source file.
+            with file.open('r+b') as stream:
                 os.fsync(stream.fileno())
         directory(out.parent)
         move_noreplace(stage, out)

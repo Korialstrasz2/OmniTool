@@ -6,6 +6,7 @@ Stop concurrent writers: file identity checks are not an adversarial filesystem 
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -135,40 +136,52 @@ another selected file would move away. This keeps rollback unambiguous.
             'fingerprint': hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()}
 
 
+@contextmanager
+def _read_handle(path: Path, before: os.stat_result):
+    """Compare path and descriptor snapshots separately, joining by file identity.
+
+    Path-stat and descriptor-stat metadata are not interchangeable on every OS.
+    Keep full timestamp/mode checks within each API instead of accepting a
+    cross-API mismatch or discarding change checks altogether.
+    """
+    fd = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0) | getattr(os, 'O_BINARY', 0))
+    with os.fdopen(fd, 'rb') as stream:
+        opened = os.fstat(stream.fileno())
+        if (linked(before) or linked(opened) or not stat.S_ISREG(opened.st_mode)
+                or (opened.st_dev, opened.st_ino, opened.st_size) != (before.st_dev, before.st_ino, before.st_size)
+                or stamp(path.lstat()) != stamp(before)):
+            raise FileToolError('File changed while opening')
+        yield stream
+        if stamp(os.fstat(stream.fileno())) != stamp(opened) or stamp(path.lstat()) != stamp(before):
+            raise FileToolError('File changed while reading; run the operation again')
+
+
 def read_regular(path: Path, limit: int) -> bytes:
     """Read a bounded, ordinary file with identity checks before/after reading."""
     directory(path.parent)
     before = path.lstat()
     if linked(before) or not stat.S_ISREG(before.st_mode) or before.st_size > limit:
         raise FileToolError('Input must be an ordinary file within the size limit')
-    fd = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0) | getattr(os, 'O_BINARY', 0))
-    with os.fdopen(fd, 'rb') as stream:
-        if stamp(os.fstat(stream.fileno())) != stamp(before):
-            raise FileToolError('File changed while opening')
+    with _read_handle(path, before) as stream:
         data = stream.read(limit + 1)
-        after = os.fstat(stream.fileno())
-    if len(data) > limit or stamp(after) != stamp(before) or stamp(path.lstat()) != stamp(before):
-        raise FileToolError('File changed while reading, or exceeds the size limit')
+        if len(data) > limit:
+            raise FileToolError('Input exceeds the size limit')
     return data
 
 
 def _digest(root: Path, row: dict, budget: list[int]) -> str:
     path = root / row['path']
     directory(path.parent)
-    if stamp(path.lstat()) != row['_stamp']:
+    before = path.lstat()
+    if stamp(before) != row['_stamp']:
         raise FileToolError('A file changed during comparison; run it again')
-    fd = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0) | getattr(os, 'O_BINARY', 0))
     digest = hashlib.sha256()
-    with os.fdopen(fd, 'rb') as source:
-        if stamp(os.fstat(source.fileno())) != row['_stamp']:
-            raise FileToolError('A file changed while opening')
+    with _read_handle(path, before) as source:
         while chunk := source.read(min(1024 * 1024, budget[0] + 1)):
             budget[0] -= len(chunk)
             if budget[0] < 0:
                 raise FileToolError('Content-hash byte budget exceeded; increase it or narrow the folders')
             digest.update(chunk)
-        if stamp(os.fstat(source.fileno())) != row['_stamp'] or stamp(path.lstat()) != row['_stamp']:
-            raise FileToolError('A file changed while hashing; run comparison again')
     return digest.hexdigest()
 
 
