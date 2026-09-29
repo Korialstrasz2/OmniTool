@@ -1,21 +1,32 @@
 {% extends 'base.html' %}
+{% block scripts %}<script src="{{ url_for('static', filename='workspace.js') }}" defer></script>{% endblock %}
 {% block content %}
-<section class="hero card">
-  <h2>Toolbox</h2>
-  <p class="lead">Launch and manage your utilities from one place. Pick a tool below to open it.</p>
-</section>
-
-{% if tools %}
-  <section class="tool-grid">
-    {% for tool in tools %}
-      <article class="tool-card">
-        <h3><a href="{{ url_for('tool_detail', tool_id=tool['id']) }}">{{ tool['name'] }}</a></h3>
-        <p>{{ tool['description'] }}</p>
-        <a class="tool-link" href="{{ url_for('tool_detail', tool_id=tool['id']) }}">Open tool →</a>
-      </article>
-    {% endfor %}
+<div id="workspace-app" data-mode="{{ mode }}">
+  <header class="page-heading">
+    <div><span class="eyebrow">YOUR PERSONAL TOOLBOX</span><h1 id="page-title">{% if mode == 'jobs' %}Jobs &amp; output{% elif mode == 'vaults' %}Locked bundles{% else %}Tool library{% endif %}</h1><p id="page-subtitle">{% if mode == 'jobs' %}Bounded, local execution. Output stays in memory.{% elif mode == 'vaults' %}Code, filenames, and manifests remain encrypted until you unlock.{% else %}One place to find, organize, and run your tools.{% endif %}</p></div>
+    {% if mode == 'vaults' %}<button id="lock-all" class="secondary">Lock all bundles</button>{% else %}<button id="add-tool" class="secondary">Add a tool</button>{% endif %}
+  </header>
+  {% if mode == 'catalog' %}
+  <section class="toolbar" aria-label="Filter tools">
+    <label class="search-label"><span class="sr-only">Search tools</span><input id="search" type="search" placeholder="Search names, descriptions, tags…" autocomplete="off"><kbd>Ctrl K</kbd></label>
+    <label><span class="sr-only">Folder</span><select id="folder"><option value="">All folders</option></select></label>
+    <label><span class="sr-only">Availability</span><select id="status"><option value="">Any status</option><option value="ready">Ready</option><option value="needs-setup">Needs setup</option><option value="unsupported-platform">Other platform</option><option value="disabled">Disabled for review</option></select></label>
+    <button id="view-toggle" class="quiet" aria-pressed="false">List view</button>
   </section>
-{% else %}
-  <p>No tools configured yet. Add entries to <code>tools.json</code>.</p>
-{% endif %}
+  <div class="results-heading"><span id="result-count" role="status">Loading tools…</span><button id="reset" class="text-button">Reset filters</button></div>
+  {% endif %}
+  <p id="app-message" class="notice" role="alert" hidden></p>
+  <div id="results" class="tool-grid" aria-live="polite" aria-busy="true"></div>
+  <nav id="pagination" class="pagination" aria-label="Result pages" hidden><button id="previous" class="secondary">Previous</button><span id="page-number"></span><button id="next" class="secondary">Next</button></nav>
+</div>
+<dialog id="instructions"><div class="dialog-heading"><h2>Add to your workspace</h2><button class="quiet" data-close="instructions" aria-label="Close">Close</button></div>
+  <h3>Public tool</h3><p>Add a folder under <code>tools/</code> with a Python entrypoint and <code>tool.json</code>. The catalog discovers it automatically. No UI or Flask route changes are needed.</p>
+  <h3>Locked tool or folder</h3><p>Keep plaintext outside your Git working tree. Use the local sealing command below; it prompts for your passphrase in the terminal.</p>
+  <pre>python -m omnitool_core.vault seal /private/my-tools --kind folder --name "My tools"</pre>
+  <p>Only the randomly named <code>vaults/*.otvault</code> file belongs in the public repository. For one tool, use <code>--kind tool</code> and include exactly one <code>tool.json</code>.</p>
+  <p class="notice">Sealing does not delete original plaintext or erase Git history. Store your passphrase in a password manager. There is no reset or recovery backdoor.</p>
+  <p>See <code>docs/ADDING_TOOLS.md</code> and <code>docs/VAULT_SECURITY.md</code> for the manifest and security model.</p>
+</dialog>
+<dialog id="unlock-dialog"><form id="unlock-form"><div class="dialog-heading"><h2>Unlock bundle</h2><button type="button" class="quiet" data-close="unlock-dialog">Cancel</button></div><p>Metadata stays hidden until the passphrase is verified. Unlocking does not execute code.</p><label>Passphrase<input id="vault-passphrase" type="password" required autocomplete="off"></label><p id="unlock-error" role="alert"></p><button type="submit">Unlock for 10 minutes</button><small>The lease is fixed, not extended by polling. Active private jobs are stopped when it expires.</small></form></dialog>
+<dialog id="bundle-dialog"><div class="dialog-heading"><h2 id="bundle-name"></h2><button class="quiet" data-close="bundle-dialog">Close</button></div><p class="notice">Only run code you trust. Encryption is not a sandbox. Downloaded files are plaintext and are not re-locked by OmniTool.</p><div id="bundle-tools"></div><details><summary>Files in this bundle</summary><div id="bundle-files"></div></details><div id="bundle-pages" class="pagination"></div></dialog>
 {% endblock %}

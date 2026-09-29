@@ -1,8 +1,29 @@
 {% extends 'base.html' %}
+{% block title %}{{ tool.name }} · OmniTool{% endblock %}
 {% block content %}
-  <h2>{{ tool['name'] }}</h2>
-  <p>{{ tool['description'] }}</p>
-  <form method="post" action="{{ url_for('run_tool', tool_id=tool['id']) }}">
-    <button type="submit">Run</button>
-  </form>
+<a class="back-link" href="{{ url_for('index') }}">← Tool library</a>
+<header class="page-heading"><div><span class="eyebrow">{{ tool.folder }}</span><h1>{{ tool.name }}</h1><p>{{ tool.description }}</p></div><span class="badge">{{ tool.availability|replace('-', ' ') }}</span></header>
+{% if tool.get('review_note') %}<p class="notice">{{ tool.review_note }}</p>{% endif %}
+{% if tool.availability != 'ready' %}
+<section class="panel"><h2>Setup or review required</h2><p>This launcher will not execute the tool in its current state.</p>{% if tool.requires %}<p>Required Python modules: <code>{{ tool.requires|join(', ') }}</code>.</p><p>Install the optional tool dependencies into this workspace's virtual environment. Review <code>requirements.txt</code> first.</p>{% endif %}</section>
+{% else %}
+<form class="tool-form panel" method="post" action="{{ url_for('run_tool', tool_id=tool.id) }}">
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<h2>Run configuration</h2>
+{% if not tool.parameters %}<p>This tool opens its own local window. Its process appears in Jobs &amp; output.</p>{% endif %}
+<div class="form-grid">
+{% for p in tool.parameters %}
+  {% if p.type == 'boolean' %}
+    <label class="check-label"><input name="{{ p.name }}" type="checkbox" {% if p.get('default') %}checked{% endif %}>{{ p.get('label', p.name) }}</label>
+  {% elif p.type == 'choice' %}
+    <label>{{ p.get('label', p.name) }}<select name="{{ p.name }}">{% for choice in p.choices %}<option value="{{ choice }}" {% if choice == p.get('default') %}selected{% endif %}>{{ choice }}</option>{% endfor %}</select></label>
+  {% else %}
+    <label>{{ p.get('label', p.name) }}{% if p.get('required') %} <span aria-label="required">*</span>{% endif %}<input name="{{ p.name }}" type="{% if p.type == 'integer' %}number{% else %}text{% endif %}" value="{{ p.get('default', '') }}" {% if p.get('required') %}required{% endif %} {% if p.get('min') is not none %}min="{{ p.min }}"{% endif %} {% if p.get('max') is not none %}max="{{ p.max }}"{% endif %} autocomplete="off">{% if p.get('help') %}<small>{{ p.help }}</small>{% endif %}</label>
+  {% endif %}
+{% endfor %}
+</div>
+{% if tool.get('risk') == 'writes-files' %}<label class="check-label notice"><input type="checkbox" name="confirm" value="yes" required>I understand that this tool can write or modify files. I have checked the paths and backups.</label>{% endif %}
+<div class="form-actions"><button type="submit">Run tool</button><a href="{{ url_for('job_page') }}">View jobs</a></div>
+</form>
+{% endif %}
 {% endblock %}

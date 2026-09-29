@@ -2,24 +2,37 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>OmniTool</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <title>{% block title %}OmniTool{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="{{ url_for('static', filename='security.js') }}" defer></script>
+  {% block scripts %}{% endblock %}
 </head>
 <body>
-  <header>
-    <h1><a href="{{ url_for('index') }}">OmniTool</a></h1>
-  </header>
-  <main>
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% if messages %}
-        <ul class="flashes">
-          {% for category, message in messages %}
-            <li class="{{ category }}">{{ message }}</li>
-          {% endfor %}
-        </ul>
-      {% endif %}
-    {% endwith %}
-    {% block content %}{% endblock %}
-  </main>
+<a class="skip-link" href="#main">Skip to content</a>
+{% if signed_in %}
+<aside class="sidebar" aria-label="Workspace navigation">
+  <a class="brand" href="{{ url_for('index') }}"><span class="brand-mark">O</span><span>OmniTool<small>PERSONAL WORKSPACE</small></span></a>
+  <p class="nav-label">WORKSPACE</p>
+  <nav>
+    <a href="{{ url_for('index') }}" data-nav="catalog">All tools</a>
+    <a href="{{ url_for('index') }}?favorites=1">Favorites</a>
+    <a href="{{ url_for('vault_page') }}" data-nav="vaults">Locked bundles</a>
+    <a href="{{ url_for('job_page') }}" data-nav="jobs">Jobs &amp; output</a>
+  </nav>
+  <div class="sidebar-note"><span class="status-dot"></span> LOCAL WORKSPACE<p>Tools run on this computer.<br>Encrypted bundles start locked.</p></div>
+  <form action="{{ url_for('logout') }}" method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button class="quiet sidebar-signout" type="submit">Lock &amp; sign out</button>
+  </form>
+</aside>
+{% endif %}
+<main id="main" class="{% if signed_in %}workspace{% else %}standalone{% endif %}">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}<p class="notice {{ category }}" role="status">{{ message }}</p>{% endfor %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</main>
 </body>
 </html>
