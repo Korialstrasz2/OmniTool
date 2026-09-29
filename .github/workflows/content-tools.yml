@@ -1,0 +1,54 @@
+name: Content tools and full regression
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ['3.11', '3.13']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install development dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Verify HTTP and audio test dependencies
+        run: python -c "import flask, mutagen, requests, cryptography, pymupdf"
+      - name: New content tool and HTTP regressions
+        timeout-minutes: 3
+        run: python -m pytest -vv tests/test_content_tools.py tests/test_content_web.py
+      - name: Run complete Python regression suite with hang diagnostics
+        timeout-minutes: 3
+        run: python -u tests/run_ci.py
+      - name: Compile Python
+        run: python -m compileall -q omnitool_core app.py
+      - name: Validate JavaScript syntax and behavior
+        shell: bash
+        run: |
+          for source in static/*.js; do node --check "$source" || exit; done
+          node tests/csv.test.js
+          node --test tests/csv_workbench.test.js tests/browser_maintenance.test.js
+  browser-ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -r requirements-dev.txt playwright
+      - run: python -m playwright install --with-deps chromium
+      - name: Real CSV worker and mocked content UI smoke
+        run: python tests/content_ui_smoke.py

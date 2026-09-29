@@ -1,11 +1,17 @@
 'use strict';
+// Pure parser/serializer, shared by the worker and the Node regression suite.
 const OmniCSV = (() => {
+  function separators(delimiter, quote) {
+    if (typeof delimiter !== 'string' || delimiter.length !== 1 || /[\r\n\0]/.test(delimiter) ||
+        !['', '"', "'"].includes(quote) || delimiter === quote) throw new Error('Invalid separators');
+  }
   function parse(text, delimiter = ',', quote = '"') {
-    if (delimiter.length !== 1 || (quote && quote.length !== 1) || delimiter === quote) throw new Error('Invalid separators');
+    separators(delimiter, quote);
     text = text.replace(/^\uFEFF/, '');
+    if (text.includes('\0')) throw new Error('NUL characters found; check the selected text encoding');
     if (!text.length) return [];
     const rows = []; let row = [], field = '', quoted = false, closed = false, ended = false, cells = 0;
-    function cell() { if (++cells > 1000000) throw new Error('File exceeds the one-million-cell limit'); row.push(field); field = ''; closed = false; }
+    function cell() { if (++cells > 200000) throw new Error('File exceeds the 200,000-cell limit'); row.push(field); field = ''; closed = false; }
     function record() { cell(); rows.push(row); row = []; ended = true; }
     for (let i = 0; i < text.length; i++) {
       const c = text[i]; ended = false;
@@ -34,60 +40,21 @@ const OmniCSV = (() => {
         let score = 0;
         for (const [width, count] of counts) if (width > 1) score = Math.max(score, count / Math.max(1, rows.length) * 100 + Math.min(width, 20));
         if (score > high) { high = score; best = delimiter; }
-      } catch (_) { /* Other separators may still be valid. */ }
+      } catch (_) { /* Another separator may still be valid. */ }
     }
     return best;
   }
   function stringify(rows, delimiter = ',', quote = '"', safe = true) {
-    if (delimiter.length !== 1 || delimiter === quote) throw new Error('Invalid output separator');
+    separators(delimiter, quote);
     return rows.map(row => row.map(value => {
       let text = String(value ?? '');
-      if (safe && /^[\t\r\n ]*[=+\-@]/.test(text)) text = "'" + text;
+      if (safe && (/^[\t\r\n]/.test(text) || /^[\t\r\n ]*[=+\-@]/.test(text))) text = "'" + text;
       const needsQuote = text.includes(delimiter) || /[\r\n]/.test(text) || (quote && text.includes(quote));
       if (needsQuote && !quote) throw new Error('This data needs quoting; choose a quote character');
-      if (needsQuote) return quote + text.split(quote).join(quote + quote) + quote;
-      return text;
+      return needsQuote ? quote + text.split(quote).join(quote + quote) + quote : text;
     }).join(delimiter)).join('\r\n');
   }
   return {parse, detect, stringify};
 })();
 if (typeof module !== 'undefined') module.exports = OmniCSV;
-if (typeof document !== 'undefined') {
-  const file = document.getElementById('csv-file');
-  if (file) {
-    let raw = '', rows = [], filename = 'converted.csv';
-    const delimiter = document.getElementById('import-delimiter');
-    const quote = document.getElementById('import-quote');
-    const status = document.getElementById('csv-status');
-    const output = document.getElementById('csv-export');
-    function preview() {
-      const table = document.getElementById('preview-table'); table.replaceChildren(); output.disabled = true;
-      try {
-        const separator = delimiter.value === 'auto' ? OmniCSV.detect(raw, quote.value) : delimiter.value;
-        rows = OmniCSV.parse(raw, separator, quote.value);
-        for (const [i, row] of rows.slice(0, 40).entries()) {
-          const tr = document.createElement('tr');
-          for (const value of row.slice(0, 40)) { const td = document.createElement(i === 0 ? 'th' : 'td'); td.textContent = value; tr.append(td); }
-          table.append(tr);
-        }
-        status.textContent = `${rows.length} rows · separator ${separator === '\t' ? 'tab' : separator} · preview limited to 40 × 40 cells`;
-        output.disabled = !rows.length;
-      } catch (error) { rows = []; status.textContent = error.message; }
-    }
-    file.addEventListener('change', async () => {
-      const selected = file.files[0]; if (!selected) return;
-      if (selected.size > 5 * 1024 * 1024) { status.textContent = 'Choose a file smaller than 5 MiB. Large-file streaming is not implemented yet.'; output.disabled = true; return; }
-      raw = await selected.text(); filename = selected.name.replace(/\.[^.]*$/, '') + '-converted.csv'; preview();
-    });
-    [delimiter, quote].forEach(control => control.addEventListener('change', preview));
-    output.addEventListener('click', () => {
-      try {
-        const text = OmniCSV.stringify(rows, document.getElementById('export-delimiter').value,
-          document.getElementById('export-quote').value, document.getElementById('safe-formulas').checked);
-        const url = URL.createObjectURL(new Blob([text], {type: 'text/csv;charset=utf-8'}));
-        const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename; anchor.click();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-      } catch (error) { status.textContent = error.message; }
-    });
-  }
-}
+if (typeof self !== 'undefined') self.OmniCSV = OmniCSV;

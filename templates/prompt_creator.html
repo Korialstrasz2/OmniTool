@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% block title %}Prompt Creator · OmniTool{% endblock %}
+{% block scripts %}<link rel="stylesheet" href="{{ url_for('static', filename='content_tools.css') }}"><script src="{{ url_for('static', filename='content_workbench.js') }}" defer></script>{% endblock %}
+{% block content %}
+<div id="content-app" data-tool="prompts">
+<a class="back-link" href="{{ url_for('index') }}">← Tool library</a>
+<header class="page-heading"><div><span class="eyebrow">AI / PROMPTS</span><h1>Prompt Creator</h1><p>Compose an idea, use your local model, and keep the result editable.</p></div><button id="clear-content" class="secondary" type="button">Clear session results</button></header>
+<section class="panel backend-strip"><div><strong>Configured local backend</strong><p>{{ config.get('kind', 'Not configured') }} · <code>{{ config.get('url', '') }}</code></p></div><button id="check-backend" type="button" class="secondary">Check connection</button></section>
+{% if config_error %}<p class="notice error">{{ config_error }}</p>{% endif %}
+<p id="content-status" class="notice" role="status">No model requests have been made. Generation sends the idea and instructions only to the configured local backend.</p>
+<div class="content-columns">
+<form id="prompt-form" class="panel"><fieldset class="content-config"><legend>Compose</legend>
+<label>Idea<textarea id="prompt-idea" rows="7" maxlength="12000" required placeholder="Subject, setting, mood, composition…"></textarea></label>
+<label>Instruction preset<select id="prompt-preset"><option value="image">Image prompt</option><option value="rewrite">Rewrite clearly</option><option value="custom">Custom instruction</option></select></label>
+<label>System instruction<textarea id="prompt-system" rows="5" required maxlength="12000">{{ system }}</textarea></label>
+<div class="form-grid"><label>Maximum output tokens<input id="prompt-tokens" type="number" min="16" max="2048" value="384" required></label><label>Temperature<input id="prompt-temperature" type="number" min="0" max="2" step="0.1" value="0.7" required></label></div>
+<button type="submit">Generate text</button></fieldset></form>
+<section class="panel"><h2>Result</h2><label class="sr-only" for="prompt-result">Editable generated result</label><textarea id="prompt-result" rows="19" placeholder="Your result appears here. Nothing is saved automatically."></textarea><div class="form-actions"><button id="copy-prompt" type="button" class="secondary">Copy</button><button id="export-prompt" type="button" class="secondary">Export text</button></div><small>Local model outputs are untrusted text, never HTML or executable commands. Exported files are plaintext.</small></section>
+</div>
+<button id="stop-content" type="button" class="secondary" disabled>Stop waiting</button>
+<details class="panel"><summary>Backend setup and privacy</summary><p>Start your local model separately. Set <code>OMNITOOL_PROMPT_URL</code> before launching OmniTool; the default is <code>http://127.0.0.1:5001</code>. Only an explicit HTTP loopback origin is accepted. Backend discovery, redirects, cloud services, and silent fallback requests are disabled.</p><p>For a local chat-completions server, also set <code>OMNITOOL_PROMPT_KIND=local-chat</code> and <code>OMNITOOL_PROMPT_MODEL</code>. Stopping ends OmniTool's worker; the model server may continue its own generation. Results expire after ten minutes and are not written to browser storage or workspace logs.</p></details>
+</div>
+{% endblock %}

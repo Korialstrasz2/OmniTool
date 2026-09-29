@@ -1,62 +1,71 @@
-# OmniTool workspace — review build
+# OmniTool
 
-A local Python toolbox with a searchable, paginated catalog, shared parameter forms, bounded jobs, and encrypted private bundles. This is a substantial migration, not a cosmetic patch. Read `docs/AUDIT.md`, `docs/VAULT_SECURITY.md`, and `docs/TEST_REPORT.md` before merging or entrusting private source to it.
-
-## First-three-tool repair
-
-Browser History Cleaner and Cookie Cleaner now use an included local WebExtension with native browser APIs, exact-host matching, explicit store/partition handling, and mandatory encrypted backup read-back before deletion. Install the generated package in each profile; the setup pages explain Chromium and Firefox installation limits. No history/cookie values pass to the Python server. The original unsafe database-editing implementations are removed.
-
-Lowercase Renamer now has a shared-workspace preview/apply/undo interface backed by a persistent, no-overwrite, two-phase rename journal. It changes filenames only, refuses collisions and stale previews, and records recovery steps outside Git. Other tools and vault code are unchanged.
-
-Read **`docs/SAFE_MAINTENANCE.md`** for installation, recovery limitations, and actual test results. Unit checks passed; live browser/UI tests were blocked by managed Chromium policy, Flask integration was skipped, and Windows/macOS/Firefox acceptance remains outstanding. Start with disposable data. This section supersedes the historical first-three-tool decisions in AUDIT.md.
+A local personal toolbox with a searchable manifest-driven library, shared workspace pages, explicit file-operation previews, and encrypted private bundles. Use Python 3.11 or newer. This is evolving software: test destructive operations on disposable copies and read the tool-specific limits before normal use.
 
 ## Start
-
-Use Python 3.11 or newer in a virtual environment. From the repository root:
 
 ```sh
 python -m pip install -r requirements-core.txt
 python app.py
 ```
 
-On Windows, `start.bat` creates `.venv` when necessary. On Unix-like systems, use `./start.sh`. The terminal prints a random **local access code**, used to sign into `http://127.0.0.1:5000`. That code is not an encryption passphrase. Keep the terminal private. The server binds to loopback, uses Waitress rather than Flask's debugger, and starts every bundle locked. Do not expose it through a tunnel or reverse proxy. It is not a multiuser or hosted service.
+Windows: `start.bat`. Unix-like systems: `./start.sh`. The terminal prints a random **local access code** for `http://127.0.0.1:5000`. This code is separate from an encrypted-bundle passphrase. Keep the terminal private. The application binds to loopback and is not a hosted, multiuser, or remotely accessible service. Do not expose it through a tunnel or reverse proxy.
 
-Core installation does not install every optional tool dependency. A card marked “Needs setup” means a declared Python dependency is missing or a local browser extension must be installed; it is not a health-check result. `python -m pip install -r requirements.txt` installs the original broader dependency set; review compatibility in a disposable virtual environment first. Tkinter, FFmpeg, browser binaries, and other external tools may still require separate installation. The retained NumPy/OpenCV constraints have not been comprehensively modernized.
-
-## What changed
-
-The new shell has search, folder/category filtering, availability filters, public-tool favorites, grid/list views, keyboard search, pagination, explicit empty/error states, and a common Jobs page. Public tools are discovered from `tools/**/tool.json`; existing tools are adapted through the root `tools.json`. Adding an ordinary Python tool no longer requires editing Flask routes or front-end code.
-
-Hunyuan3D's manager, routes, and template are removed. The first three maintenance tools are replaced as described above, rather than merely re-enabling their old code. The Base64/PDF launcher now supplies actual parameters. CSV parsing is rebuilt for quoted multiline fields. Passive Media Capture is exposed as its own job-based tool. A new read-only Duplicate Finder groups equal-size files by SHA-256.
-
-The old all-in-one backend is replaced by `omnitool_core/{catalog,jobs,locks,vault,web}.py`. Jobs use argument arrays, never a shell, with a bounded queue, concurrency, runtime, and output buffer. The old arbitrary-path lyrics log endpoint and hard-coded session key are gone. Optional AI metadata recovery is off by default in the new Lyrics form.
-
-## Migration boundaries
-
-Except for the three repaired maintenance scripts, original scripts are retained; this does not rewrite every tool's internal UI or logic. Tkinter tools and Prompt Creator still open their own interfaces. Advanced legacy Media/Lyrics controls, saved presets, AI ping, and provider-specific screens are not all reproduced in the shared forms; remaining flags are available through the scripts' CLIs. These need an acceptance pass before this replaces a daily-use installation.
-
-Catalog folders currently come from manifest metadata: they are not a drag-and-drop collection manager. Search returns paginated results, but discovery still scans manifests per request. There is no claim of infinite scale. Private tools remain in the separate encrypted-bundle view rather than being merged into the public search index. Jobs and their output are session-scoped and memory-only; restarting loses them. Ordinary jobs have a 30-minute execution timeout. Private access lasts ten minutes per unlock and expires even while a job is running.
-
-The source-level audit did not test third-party services or run browser database modifications. A “Ready” badge means basic declared prerequisites are present, not that an external provider or desktop GUI has been verified. Browser cards deliberately retain a setup badge because installation cannot be detected from the web workspace. Native-browser acceptance of their replacements is not yet established.
-
-## Adding tools and private bundles
-
-Read `docs/ADDING_TOOLS.md`. Private plaintext must live outside a Git working tree. A locked tool is one encrypted bundle containing one manifest. A locked folder is one encrypted bundle containing files and zero or more tool manifests. Public observers see opaque `.otvault` filenames and ciphertext, not internal paths or names. This does not hide the existence, padded size, or Git history of those blobs.
+Core startup does not install every tool dependency. For optional features, install deliberately into the same virtual environment:
 
 ```sh
-# Run from the OmniTool root. Replace the source path with a private local directory.
+python -m pip install -r requirements-conversion.txt
+python -m pip install -r requirements-content.txt
+```
+
+The broad legacy `requirements.txt` remains for the download tools and older setups. It has not received a full dependency-isolation audit. External binaries and browser extensions require their own setup. A Ready badge means declared Python prerequisites are present, not that a provider, model, browser extension, or optional native binary was tested successfully.
+
+## Current tools
+
+| Tool | Current workflow |
+| --- | --- |
+| Browser History Cleaner / Cookie Cleaner | Profile-local extension, exact-host preview, verified encrypted backup, explicit deletion. Extension installation is required per profile. |
+| Lowercase Renamer | File-only lowercase preview, no-overwrite apply, persistent undo/recovery journal. |
+| Dual File Renamer | Two-pane matching, staged mappings, preview/apply, shared undo. |
+| Folder Compare | Read-only recursive path/content comparison and JSON/CSV reports. |
+| Base64 / PDF to PNG | Strict input inspection, bounded rendering, new output folder only. |
+| Prompt Creator | In-workspace editor and one explicitly configured local model; no standalone FastAPI server or cloud fallback. |
+| Lyrics Workbench | Inspect selected tracks, prepare sidecar/HTTPS-provider lyrics, review, then write tagged **copies** into a new folder. Originals are not modified. |
+| CSV Workbench | Browser-only cell editing, undo, row filtering, text sorting, trim/deduplicate/remove-empty operations, and CSV/JSON export. |
+| Media Harvester / Passive Media Capture | Existing scripts through tracked jobs; further provider/preset/dependency modernization remains. |
+| Duplicate Finder | Read-only size/SHA-256 duplicate report; no automatic deletion. |
+
+Hunyuan3D's old manager was removed. Existing tool IDs remain stable across these migrations. Public tool favorites, category/status filters, grid/list layouts, and pagination remain available. Categories are manifest metadata, not a drag-and-drop filesystem manager. Discovery rescans manifests; no infinite-capacity claim is made.
+
+## Guides and migration boundaries
+
+- `docs/SAFE_MAINTENANCE.md`: browser-extension permissions/backups, lowercase renaming, and recovery limits.
+- `docs/FILE_WORKBENCH.md`: dual renaming, comparison, image/PDF conversion, and task limits.
+- `docs/CONTENT_WORKBENCH.md`: Prompt Creator, non-destructive lyrics copies, CSV editing, and retired legacy options.
+- `docs/ADDING_TOOLS.md`: add `tools/<name>/tool.json` plus a Python entrypoint; no per-tool launcher UI is needed for ordinary Python tools.
+- `docs/VAULT_SECURITY.md`: encrypted bundles and their threat model. Earlier audit/test reports describe their particular implementation snapshots, not current CI results.
+
+Some specialized tasks display their status/results in their own pages rather than the generic Jobs screen. Public job history and previews are memory-only. Restarting loses them; navigating away does not necessarily stop a running worker. Content tasks have bounded queues, a three-minute wall-clock limit, and session-scoped results usable for ten minutes after finishing. A completed filesystem action cannot be undone merely by clearing its displayed result.
+
+## Private tools and folders
+
+A public Git repository can store ciphertext bundles, but public observers still see their existence, padded sizes, count, and history. Keep private plaintext **outside Git working trees**, seal locally with the CLI, and commit only the generated opaque `vaults/*.otvault` file:
+
+```sh
 python -m omnitool_core.vault seal /private/my-tool --kind tool --name "My private tool"
 ```
 
-The terminal prompts for a passphrase and confirmation. Nothing is uploaded automatically, and plaintext originals are unchanged. Commit only the generated `vaults/<random-id>.otvault` file. Never submit your passphrase in an issue, PR, chat, source file, command-line argument, or GitHub Actions job.
+Use `--kind folder` for files and multiple tools. The CLI prompts for the passphrase; never place it in a command-line argument, issue, PR, chat, or workflow. Plaintext originals are unchanged, and no automatic upload takes place. Store the passphrase and a recoverable backup independently. There is no reset or recovery backdoor.
 
-## Verify
+**The vault container and integration are not independently audited.** Encryption does not retract previously public code, sandbox tool execution, secure a compromised host, or guarantee memory/file erasure. A running tool needs plaintext; temporary execution files, deliberate exports, crashes, backups, detached processes, and Windows permissions require careful review. Read the complete threat model before using valuable private code. Browser-maintenance backups use a separate format; they are not `.otvault` bundles.
+
+## Tests
 
 ```sh
 python -m pip install -r requirements-dev.txt
 python -m pytest -q tests
 node tests/csv.test.js
-node --test tests/browser_maintenance.test.js
+node --test tests/csv_workbench.test.js tests/browser_maintenance.test.js
 ```
 
-Encryption uses PyCA's AES-256-GCM and scrypt. The container and its integration are new and **not independently audited**. Confidentiality at rest is not an execution sandbox, reliable secure erasure, or a way to recall previously public source. Use non-sensitive test bundles first.
+GitHub Actions runs Linux/Windows regression configurations. Read actual check results rather than interpreting a workflow file as a passing test. Browser-maintenance API tests are mocked, and neither provider availability nor the independent cryptographic/security review is established by a passing test suite.

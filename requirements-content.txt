@@ -1,0 +1,3 @@
+# Optional Lyrics Workbench metadata and HTTPS lookup dependencies.
+mutagen>=1.47,<2
+requests>=2.32.4,<3
