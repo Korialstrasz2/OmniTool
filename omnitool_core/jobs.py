@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .vault import materialize
+from .python_io import python_environment, text_chunks
 
 
 @dataclass
@@ -61,11 +62,8 @@ class Jobs:
             if job.canceled.is_set():
                 job.status = "canceled"
                 return
-            env = os.environ.copy()
-            env["PYTHONDONTWRITEBYTECODE"] = "1"
-            env["PYTHONUNBUFFERED"] = "1"
-            # The workspace access token must not be inherited by tool processes.
-            env.pop("OMNITOOL_ACCESS_TOKEN", None)
+            # Redirected Windows pipes must use the same encoding as the reader.
+            env = python_environment()
             if files is not None:
                 temp = tempfile.TemporaryDirectory(prefix="omnitool-private-")
                 cwd = Path(temp.name)
@@ -88,9 +86,9 @@ class Jobs:
 
             def reader():
                 assert job.process is not None and job.process.stdout is not None
-                while chunk := job.process.stdout.read1(4096):
+                for text in text_chunks(job.process.stdout):
                     with self.lock:
-                        job.output = (job.output + chunk.decode("utf-8", errors="replace"))[-65536:]
+                        job.output = (job.output + text)[-65536:]
 
             read_thread = threading.Thread(target=reader, daemon=True)
             read_thread.start()
