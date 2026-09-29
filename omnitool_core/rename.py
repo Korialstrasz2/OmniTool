@@ -211,8 +211,17 @@ class Renamer:
                 directory((root / value).parent)
             if Path(row['source']).parent != Path(row['target']).parent or Path(row['source']).parent != Path(row['temp']).parent:
                 raise RenameError('Invalid cross-directory rename in journal')
-            if Path(row['source']).name.lower() != Path(row['target']).name:
-                raise RenameError('Invalid lowercase target')
+            kind = doc.get('kind', 'lowercase')
+            if kind == 'lowercase':
+                if Path(row['source']).name.lower() != Path(row['target']).name:
+                    raise RenameError('Invalid lowercase target')
+            elif kind == 'dual':
+                from .file_workbench import component
+                component(row['source']); component(row['target'])
+                if Path(row['source']).suffix != Path(row['target']).suffix or row['source'] == row['target']:
+                    raise RenameError('Invalid mapped target')
+            else:
+                raise RenameError('Unknown rename journal kind')
             if row['source'] in seen:
                 raise RenameError('Duplicate journal entry')
             seen.add(row['source'])
@@ -259,10 +268,17 @@ class Renamer:
         self._save(doc)
 
     def apply(self, root: Path, fingerprint: str) -> dict:
+        return self._apply(root, fingerprint, plan, 'lowercase')
+
+    def apply_dual(self, reference: Path, root: Path, pairs: list[dict], fingerprint: str) -> dict:
+        from .file_workbench import dual_plan
+        return self._apply(root, fingerprint, lambda r: dual_plan(reference, r, pairs), 'dual')
+
+    def _apply(self, root: Path, fingerprint: str, planner, kind: str) -> dict:
         with self._lock():
             if any(x['status'] in {'applying', 'recovering', 'recovery-required', 'invalid-journal'} for x in self.recent(None)):
                 raise RenameError('Recover the unfinished operation before starting another')
-            fresh = plan(root)
+            fresh = planner(root)
             if fresh['fingerprint'] != fingerprint:
                 raise RenameError('Folder contents changed after preview; create a fresh preview')
             if fresh['conflicts']:
@@ -274,7 +290,7 @@ class Renamer:
                 raise RenameError('The journal directory must be outside the selected folder')
             op = secrets.token_hex(16)
             info = root.stat()
-            doc = {'version': 1, 'id': op, 'created': time.time(), 'root': str(root),
+            doc = {'version': 1, 'kind': kind, 'id': op, 'created': time.time(), 'root': str(root),
                    'root_identity': [info.st_dev, info.st_ino], 'status': 'applying',
                    'rows': fresh['rows'], 'pending': None}
             for i, row in enumerate(doc['rows']):

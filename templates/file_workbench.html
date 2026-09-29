@@ -1,0 +1,53 @@
+{% extends 'base.html' %}
+{% block title %}{% if mode == 'dual' %}Dual File Renamer{% elif mode == 'compare' %}Folder Compare{% else %}PNG Converter{% endif %} · OmniTool{% endblock %}
+{% block scripts %}
+<link rel="stylesheet" href="{{ url_for('static', filename='file_workbench.css') }}">
+<script src="{{ url_for('static', filename='file_workbench.js') }}" defer></script>
+{% endblock %}
+{% block content %}
+<div id="file-workbench" data-mode="{{ mode }}">
+<a class="back-link" href="{{ url_for('index') }}">← Tool library</a>
+<header class="page-heading"><div><span class="eyebrow">FILES / WORKBENCH</span>
+<h1>{% if mode == 'dual' %}Dual File Renamer{% elif mode == 'compare' %}Folder Compare{% else %}PNG Converter{% endif %}</h1>
+<p>{% if mode == 'dual' %}Stage filename matches. Review every change. Apply only when the plan is correct.{% elif mode == 'compare' %}Compare relative paths or file contents. Nothing in either folder is changed.{% else %}Inspect PDF, image, or Base64 input before creating a new PNG output folder.{% endif %}</p></div>
+<span class="badge">{% if mode == 'compare' %}Read only{% else %}Preview first{% endif %}</span></header>
+<p id="file-message" class="notice" role="status" aria-live="polite" hidden></p>
+{% if mode == 'dual' %}
+<form id="dual-open" class="panel"><h2>1. Choose your folders</h2><div class="form-grid">
+<label>Reference folder — names are copied, files stay unchanged<input id="left-root" required autocomplete="off" placeholder="C:\Files\Reference"></label>
+<label>Target folder — these filenames will change<input id="right-root" required autocomplete="off" placeholder="C:\Files\Targets"></label></div>
+<p>Top-level files only. Select a reference on the left and a target on the right, then stage the pair. The target keeps its final extension.</p>
+<button type="submit">Load folders</button></form>
+<section id="dual-matching" class="panel" hidden><h2>2. Stage your matches</h2><p>Selection alone never renames a file. Image previews appear for the selected files; video previews require FFmpeg.</p>
+<div class="match-columns">
+{% for side, label in [('left', 'Reference files'), ('right', 'Target files')] %}
+<section class="match-pane" aria-label="{{ label }}"><h3>{{ label }}</h3><label>Filter filenames<input id="{{ side }}-query" type="search" autocomplete="off"></label>
+<div id="{{ side }}-files" class="file-list" aria-live="polite"></div><div class="pagination"><button id="{{ side }}-prev" class="secondary" type="button">Previous</button><span id="{{ side }}-page"></span><button id="{{ side }}-next" class="secondary" type="button">Next</button></div>
+<div class="selected-file"><p id="{{ side }}-selected">No file selected</p><img id="{{ side }}-thumb" alt="Selected file preview" hidden><small id="{{ side }}-thumb-note"></small></div></section>
+{% endfor %}
+</div><button id="stage-pair" type="button" disabled>Stage selected pair</button><div class="preview-wrap"><table><caption>Staged mappings — no changes applied</caption><thead><tr><th>Reference</th><th>Target file</th><th>Action</th></tr></thead><tbody id="staged-pairs"></tbody></table></div>
+<button id="preview-pairs" class="secondary" type="button" disabled>Review rename plan</button></section>
+<section id="dual-review" class="panel" hidden><h2>3. Confirm the exact plan</h2><p id="dual-summary"></p><div class="preview-wrap"><table><thead><tr><th>Current filename</th><th>Proposed filename</th></tr></thead><tbody id="dual-plan"></tbody></table></div><p id="dual-conflicts" class="notice" hidden></p>
+<p>Stop other programs writing to this folder. Occupied names and changed files are rejected. The journal supports name recovery but is not a backup of file contents.</p>
+<form id="dual-apply"><label id="dual-confirm-label">Confirmation<input id="dual-confirm" required autocomplete="off"></label><button id="dual-run" type="submit">Apply reviewed renames</button></form></section>
+<section class="panel"><h2>Undo or recover a rename</h2><p>Shared with Lowercase Renamer. Recovery refuses changed files or occupied original names.</p><form id="rename-recover"><label>Operation<select id="rename-operation"></select></label><label>Type UNDO<input id="undo-confirm" required autocomplete="off"></label><button type="submit" class="secondary">Restore original names</button></form></section>
+{% elif mode == 'compare' %}
+<form id="compare-form" class="panel"><h2>Comparison setup</h2><div class="form-grid"><label>Left folder<input id="compare-left" required autocomplete="off"></label><label>Right folder<input id="compare-right" required autocomplete="off"></label>
+<label>Comparison mode<select id="compare-mode"><option value="content">Content — relative paths + SHA-256</option><option value="paths">Paths — includes extensions; does not compare bytes</option><option value="stems">Legacy stems — ignores final extensions</option></select></label><label>Maximum bytes to hash (MiB, both folders combined)<input id="hash-budget" type="number" value="1024" min="1" max="4096" required></label></div>
+<label class="check-label"><input type="checkbox" id="recursive" checked>Include subfolders and empty directories (except in stems mode)</label><p>Names are case-sensitive. Links, junctions, special files, and development folders are skipped and counted. Duplicate stems are reported as ambiguous.</p><button type="submit" id="compare-start">Compare folders</button> <button id="task-cancel" class="secondary" type="button" hidden>Stop scan</button></form>
+<section id="comparison-report" class="panel" hidden><h2>Comparison report</h2><p id="compare-summary"></p><p id="compare-scope" class="notice"></p>
+<div class="form-grid"><label>Find a path<input id="report-query" type="search"></label><label>Status<select id="report-status"><option value="">All statuses</option></select></label></div>
+<div class="report-actions"><a id="report-json" class="button secondary">Export full JSON</a><a id="report-csv" class="button secondary">Export rows as CSV</a></div><small>JSON includes scope and skipped paths. CSV neutralizes formula-like cell values and contains comparison rows only.</small>
+<div class="preview-wrap"><table><thead><tr><th>Relative path</th><th>Result</th><th>Left</th><th>Right</th></tr></thead><tbody id="compare-rows"></tbody></table></div>
+<div class="pagination"><button id="report-prev" type="button" class="secondary">Previous</button><span id="report-page"></span><button id="report-next" type="button" class="secondary">Next</button></div></section>
+{% else %}
+{% if not conversion_ready %}<p class="notice">Conversion dependencies are missing. Install <code>requirements-conversion.txt</code> in the OmniTool virtual environment, then restart the workspace.</p>{% endif %}
+<form id="convert-form" class="panel"><h2>1. Inspect the input</h2><div class="form-grid"><label>Input file — PDF, image, or Base64 text<input id="convert-input" required autocomplete="off"></label><label>NEW output folder — its parent must already exist<input id="convert-out" required autocomplete="off"></label><label>PDF resolution (DPI)<input id="convert-dpi" type="number" value="220" min="36" max="600" required></label><label>Maximum PDF pages<input id="convert-pages" type="number" value="100" min="1" max="100" required></label></div>
+<p>Limits: 32 MiB input, 24 MiB decoded, 20 million pixels per image, 100 million pixels per batch. Encrypted PDFs and animated/multi-frame images are rejected.</p><button id="inspect-start" type="submit">Inspect input</button> <button id="task-cancel" type="button" class="secondary" hidden>Stop operation</button></form>
+<section id="conversion-review" class="panel" hidden><h2>2. Review and convert</h2><p id="conversion-summary"></p><p id="conversion-omitted" class="notice" hidden></p><div class="preview-wrap"><table><thead><tr><th>Output filename</th><th>Dimensions</th></tr></thead><tbody id="conversion-images"></tbody></table></div>
+<p>Image orientation is applied and source image metadata is stripped. PDF pages use an opaque RGB background. Existing files and folders are never overwritten.</p><form id="convert-apply"><label>Confirmation<input id="convert-confirm" autocomplete="off" required></label><button id="convert-run" type="submit">Create PNG output folder</button></form></section>
+<section id="conversion-result" class="panel" hidden><h2>Conversion complete</h2><p id="conversion-output"></p><a id="conversion-json" class="button secondary">Export conversion report</a><p>The output folder also contains conversion.json. It includes the local input path; review it before sharing.</p></section>
+<p class="notice">Conversion builds a separate staging folder, then publishes it. Cancellation or a forced stop can leave a .partial staging folder. A folder published just before cancellation is kept; inspect the output path.</p>
+{% endif %}
+</div>
+{% endblock %}

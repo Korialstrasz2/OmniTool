@@ -1,0 +1,45 @@
+name: File tools regression
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: file-tools-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install test and conversion dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Verify HTTP test dependencies are present
+        run: python -c "import flask, waitress, PIL, fitz, cryptography"
+      - name: File tools and maintenance HTTP regressions
+        run: python -m pytest -q tests/test_rename.py tests/test_file_workbench.py tests/test_conversion.py tests/test_file_web.py tests/test_web.py tests/test_maintenance_web.py tests/test_browser_package.py
+      - name: Compile Python sources
+        run: python -m compileall -q omnitool_core app.py
+      - name: Check JavaScript and retained data/browser logic
+        run: |
+          node --check static/file_workbench.js
+          node tests/csv.test.js
+          node --test tests/browser_maintenance.test.js
